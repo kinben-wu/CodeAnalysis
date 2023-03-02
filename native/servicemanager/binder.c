@@ -153,6 +153,7 @@ int binder_become_context_manager(struct binder_state *bs)
     return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);////1.2.1 ioctl调用，设置为守护进程
 }
 
+//往binder驱动写入数据
 int binder_write(struct binder_state *bs, void *data, size_t len)
 {
     struct binder_write_read bwr;
@@ -164,7 +165,7 @@ int binder_write(struct binder_state *bs, void *data, size_t len)
     bwr.read_size = 0;
     bwr.read_consumed = 0;
     bwr.read_buffer = 0;
-    res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);//ioctl调用进行系统交互
+    res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);//ioctl系统调用与内核交互
     if (res < 0) {
         fprintf(stderr,"binder_write: ioctl failed (%s)\n",
                 strerror(errno));
@@ -172,6 +173,7 @@ int binder_write(struct binder_state *bs, void *data, size_t len)
     return res;
 }
 
+//通知binder驱动释放binder数据缓冲区（binder_buffer）
 void binder_free_buffer(struct binder_state *bs,
                         binder_uintptr_t buffer_to_free)
 {
@@ -184,11 +186,13 @@ void binder_free_buffer(struct binder_state *bs,
     binder_write(bs, &data, sizeof(data));
 }
 
+//向请求方发送回复数据并释放内存
 void binder_send_reply(struct binder_state *bs,
                        struct binder_io *reply,
                        binder_uintptr_t buffer_to_free,
                        int status)
 {
+    //定义结构体，因为本次回复需要向binder驱动发送BC_FREE_BUFFER、BC_REPLY两条指令
     struct {
         uint32_t cmd_free;
         binder_uintptr_t buffer;
@@ -196,37 +200,40 @@ void binder_send_reply(struct binder_state *bs,
         struct binder_transaction_data txn;
     } __attribute__((packed)) data;
 
+    //相关成员赋值
     data.cmd_free = BC_FREE_BUFFER;
     data.buffer = buffer_to_free;
     data.cmd_reply = BC_REPLY;
     data.txn.target.ptr = 0;
     data.txn.cookie = 0;
     data.txn.code = 0;
-    if (status) {
+    if (status) {//异常情况
         data.txn.flags = TF_STATUS_CODE;
         data.txn.data_size = sizeof(int);
         data.txn.offsets_size = 0;
         data.txn.data.ptr.buffer = (uintptr_t)&status;
         data.txn.data.ptr.offsets = 0;
-    } else {
+    } else {//正常情况
         data.txn.flags = 0;
         data.txn.data_size = reply->data - reply->data0;
         data.txn.offsets_size = ((char*) reply->offs) - ((char*) reply->offs0);
         data.txn.data.ptr.buffer = (uintptr_t)reply->data0;
         data.txn.data.ptr.offsets = (uintptr_t)reply->offs0;
     }
-    binder_write(bs, &data, sizeof(data));
+    binder_write(bs, &data, sizeof(data));//将data写入binder驱动
 }
 
+//binder数据处理函数
 int binder_parse(struct binder_state *bs, struct binder_io *bio,
                  uintptr_t ptr, size_t size, binder_handler func)
 {
     int r = 1;
-    uintptr_t end = ptr + (uintptr_t) size;
+    uintptr_t end = ptr + (uintptr_t) size;//数据缓冲区结束位置
 
+    //存在数据未读
     while (ptr < end) {
-        uint32_t cmd = *(uint32_t *) ptr;
-        ptr += sizeof(uint32_t);
+        uint32_t cmd = *(uint32_t *) ptr;//数据缓冲区读出cmd
+        ptr += sizeof(uint32_t);//指针后移
 #if TRACE
         fprintf(stderr,"%s:\n", cmd_name(cmd));
 #endif
@@ -245,28 +252,28 @@ int binder_parse(struct binder_state *bs, struct binder_io *bio,
             ptr += sizeof(struct binder_ptr_cookie);
             break;
         case BR_TRANSACTION: {
-            struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;
+            struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;//取出binder传输的数据binder_transaction_data
             if ((end - ptr) < sizeof(*txn)) {
                 ALOGE("parse: txn too small!\n");
                 return -1;
             }
-            binder_dump_txn(txn);
+            binder_dump_txn(txn);//trace
             if (func) {
-                unsigned rdata[256/4];
-                struct binder_io msg;
-                struct binder_io reply;
+                unsigned rdata[256/4];//数据缓冲区
+                struct binder_io msg;//接收的数据
+                struct binder_io reply;//要回复的数据
                 int res;
 
-                bio_init(&reply, rdata, sizeof(rdata), 4);
-                bio_init_from_txn(&msg, txn);
-                res = func(bs, txn, &msg, &reply);
-                if (txn->flags & TF_ONE_WAY) {
-                    binder_free_buffer(bs, txn->data.ptr.buffer);
-                } else {
-                    binder_send_reply(bs, &reply, txn->data.ptr.buffer, res);
+                bio_init(&reply, rdata, sizeof(rdata), 4);//初始化要回复的数据reply，最大offset个数为4，即最多只能回复4个binder对象
+                bio_init_from_txn(&msg, txn);//从txn初始化接收的数据msg
+                res = func(bs, txn, &msg, &reply);//调用func函数做真正的处理
+                if (txn->flags & TF_ONE_WAY) {//不需回复
+                    binder_free_buffer(bs, txn->data.ptr.buffer);//释放数据缓冲区
+                } else {//需要回复
+                    binder_send_reply(bs, &reply, txn->data.ptr.buffer, res);//发送回复数据
                 }
             }
-            ptr += sizeof(*txn);
+            ptr += sizeof(*txn);//指针后移
             break;
         }
         case BR_REPLY: {
@@ -402,21 +409,23 @@ void binder_loop(struct binder_state *bs, binder_handler func)
     bwr.write_buffer = 0;
 
     readbuf[0] = BC_ENTER_LOOPER;//1.3.2 将BC_ENTER_LOOPER写进缓冲区
-    binder_write(bs, readbuf, sizeof(uint32_t));//1.3.3 将BC_ENTER_LOOPER传入给binder驱动
+    binder_write(bs, readbuf, sizeof(uint32_t));//1.3.3 将BC_ENTER_LOOPER传入给binder驱动，通知内核当前线程进入循环
 
+    //1.3.4 进入循环
     for (;;) {
+        //1.3.5 设置读缓冲区
         bwr.read_size = sizeof(readbuf);
         bwr.read_consumed = 0;
         bwr.read_buffer = (uintptr_t) readbuf;
 
-        res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);
+        res = ioctl(bs->fd, BINDER_WRITE_READ, &bwr);//1.3.6 ioctl系统调用，与binder驱动交互
 
         if (res < 0) {
             ALOGE("binder_loop: ioctl failed (%s)\n", strerror(errno));
             break;
         }
 
-        res = binder_parse(bs, 0, (uintptr_t) readbuf, bwr.read_consumed, func);
+        res = binder_parse(bs, 0, (uintptr_t) readbuf, bwr.read_consumed, func);//1.3.7 调用binder_parse处理数据
         if (res == 0) {
             ALOGE("binder_loop: unexpected reply?!\n");
             break;
@@ -428,8 +437,10 @@ void binder_loop(struct binder_state *bs, binder_handler func)
     }
 }
 
+//根据接收的binder传输数据txn初始化binder_io
 void bio_init_from_txn(struct binder_io *bio, struct binder_transaction_data *txn)
 {
+    //相关成员赋值
     bio->data = bio->data0 = (char *)(intptr_t)txn->data.ptr.buffer;
     bio->offs = bio->offs0 = (binder_size_t *)(intptr_t)txn->data.ptr.offsets;
     bio->data_avail = txn->data_size;
@@ -437,18 +448,20 @@ void bio_init_from_txn(struct binder_io *bio, struct binder_transaction_data *tx
     bio->flags = BIO_F_SHARED;
 }
 
+//根据缓冲区data初始化binder_io
 void bio_init(struct binder_io *bio, void *data,
-              size_t maxdata, size_t maxoffs)
+              size_t maxdata, size_t maxoffs)//maxdata：缓冲区空间最大值；maxoffs：offsets的最大个数
 {
-    size_t n = maxoffs * sizeof(size_t);
+    size_t n = maxoffs * sizeof(size_t);//算出offsets部分数据占用的空间大小
 
-    if (n > maxdata) {
+    if (n > maxdata) {//空间不足
         bio->flags = BIO_F_OVERFLOW;
         bio->data_avail = 0;
         bio->offs_avail = 0;
         return;
     }
 
+    //相关成员赋值，data缓冲区先放offsets部分，后放data部分
     bio->data = bio->data0 = (char *) data + n;
     bio->offs = bio->offs0 = data;
     bio->data_avail = maxdata - n;
@@ -456,17 +469,18 @@ void bio_init(struct binder_io *bio, void *data,
     bio->flags = 0;
 }
 
+//将flat_binder_object写入binder_io里
 static void *bio_alloc(struct binder_io *bio, size_t size)
 {
     size = (size + 3) & (~3);
-    if (size > bio->data_avail) {
+    if (size > bio->data_avail) {//没有空间
         bio->flags |= BIO_F_OVERFLOW;
         return NULL;
     } else {
-        void *ptr = bio->data;
-        bio->data += size;
+        void *ptr = bio->data;//将当前写入的地址置为flat_binder_object的首地址
+        bio->data += size;//指针后移
         bio->data_avail -= size;
-        return ptr;
+        return ptr;//返回flat_binder_object的首地址
     }
 }
 
@@ -487,15 +501,16 @@ void binder_done(struct binder_state *bs,
     }
 }
 
+//把flat_binder_object写入binder_io
 static struct flat_binder_object *bio_alloc_obj(struct binder_io *bio)
 {
     struct flat_binder_object *obj;
 
-    obj = bio_alloc(bio, sizeof(*obj));
+    obj = bio_alloc(bio, sizeof(*obj));//把flat_binder_object写入binder_io
 
-    if (obj && bio->offs_avail) {
+    if (obj && bio->offs_avail) {//有空间
         bio->offs_avail--;
-        *bio->offs++ = ((char*) obj) - ((char*) bio->data0);
+        *bio->offs++ = ((char*) obj) - ((char*) bio->data0);//flat_binder_object偏移量赋值
         return obj;
     }
 
@@ -524,11 +539,13 @@ void bio_put_obj(struct binder_io *bio, void *ptr)
     obj->cookie = 0;
 }
 
+//根据句柄handle，创建flat_binder_object，并放进binder_io
 void bio_put_ref(struct binder_io *bio, uint32_t handle)
 {
     struct flat_binder_object *obj;
 
-    if (handle)
+    //把flat_binder_object写入binder_io
+    if (handle)//非0
         obj = bio_alloc_obj(bio);
     else
         obj = bio_alloc(bio, sizeof(*obj));
@@ -537,8 +554,8 @@ void bio_put_ref(struct binder_io *bio, uint32_t handle)
         return;
 
     obj->flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;
-    obj->hdr.type = BINDER_TYPE_HANDLE;
-    obj->handle = handle;
+    obj->hdr.type = BINDER_TYPE_HANDLE;//类型：binder代理
+    obj->handle = handle;//句柄
     obj->cookie = 0;
 }
 
@@ -597,6 +614,7 @@ void bio_put_string16_x(struct binder_io *bio, const char *_str)
     *ptr++ = 0;
 }
 
+//从binder_io中读取指定长度的数据
 static void *bio_get(struct binder_io *bio, size_t size)
 {
     size = (size + 3) & (~3);
@@ -606,39 +624,42 @@ static void *bio_get(struct binder_io *bio, size_t size)
         bio->flags |= BIO_F_OVERFLOW;
         return NULL;
     }  else {
-        void *ptr = bio->data;
-        bio->data += size;
-        bio->data_avail -= size;
-        return ptr;
+        void *ptr = bio->data;//要读取数据的首地址
+        bio->data += size;//指针后移
+        bio->data_avail -= size;//
+        return ptr;//返回读取数据的首地址
     }
 }
 
+//从binder_io中读取int32
 uint32_t bio_get_uint32(struct binder_io *bio)
 {
     uint32_t *ptr = bio_get(bio, sizeof(*ptr));
-    return ptr ? *ptr : 0;
+    return ptr ? *ptr : 0;//返回指针指向的int32的值
 }
 
+//从binder_io获取字符串
 uint16_t *bio_get_string16(struct binder_io *bio, size_t *sz)
 {
     size_t len;
 
     /* Note: The payload will carry 32bit size instead of size_t */
-    len = (size_t) bio_get_uint32(bio);
+    len = (size_t) bio_get_uint32(bio);//取出字符串长度
     if (sz)
         *sz = len;
-    return bio_get(bio, (len + 1) * sizeof(uint16_t));
+    return bio_get(bio, (len + 1) * sizeof(uint16_t));//取出字符串，返回首地址
 }
 
+//从binder_io获取binder对象
 static struct flat_binder_object *_bio_get_obj(struct binder_io *bio)
 {
     size_t n;
-    size_t off = bio->data - bio->data0;
+    size_t off = bio->data - bio->data0;//算出binder_io当前读所处的偏移量
 
     /* TODO: be smarter about this? */
-    for (n = 0; n < bio->offs_avail; n++) {
-        if (bio->offs[n] == off)
-            return bio_get(bio, sizeof(struct flat_binder_object));
+    for (n = 0; n < bio->offs_avail; n++) {//遍历offsets数组
+        if (bio->offs[n] == off)//偏移量相同，这是为了检查当前要读的数据就是一个flat_binder_object
+            return bio_get(bio, sizeof(struct flat_binder_object));//获取flat_binder_object返回
     }
 
     bio->data_avail = 0;
@@ -646,16 +667,17 @@ static struct flat_binder_object *_bio_get_obj(struct binder_io *bio)
     return NULL;
 }
 
+//从binder_io获取服务代理的句柄
 uint32_t bio_get_ref(struct binder_io *bio)
 {
     struct flat_binder_object *obj;
 
-    obj = _bio_get_obj(bio);
+    obj = _bio_get_obj(bio);//从binder_io获取binder对象
     if (!obj)
         return 0;
 
-    if (obj->hdr.type == BINDER_TYPE_HANDLE)
-        return obj->handle;
+    if (obj->hdr.type == BINDER_TYPE_HANDLE)//binder代理类型
+        return obj->handle;//返回句柄
 
     return 0;
 }

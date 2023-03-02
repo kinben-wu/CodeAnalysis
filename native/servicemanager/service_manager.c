@@ -143,19 +143,20 @@ struct svcinfo
     uint16_t name[0];
 };
 
-struct svcinfo *svclist = NULL;
+struct svcinfo *svclist = NULL;//服务链表
 
+//查找服务
 struct svcinfo *find_svc(const uint16_t *s16, size_t len)
 {
     struct svcinfo *si;
 
-    for (si = svclist; si; si = si->next) {
+    for (si = svclist; si; si = si->next) {//遍历服务链表
         if ((len == si->len) &&
-            !memcmp(s16, si->name, len * sizeof(uint16_t))) {
-            return si;
+            !memcmp(s16, si->name, len * sizeof(uint16_t))) {//通过比对名字
+            return si;//找到，返回
         }
     }
-    return NULL;
+    return NULL;//没找到返回null
 }
 
 void svcinfo_death(struct binder_state *bs, void *ptr)
@@ -174,10 +175,10 @@ uint16_t svcmgr_id[] = {
     'I','S','e','r','v','i','c','e','M','a','n','a','g','e','r'
 };
 
-
+//查找服务，返回代理句柄
 uint32_t do_find_service(const uint16_t *s, size_t len, uid_t uid, pid_t spid)
 {
-    struct svcinfo *si = find_svc(s, len);
+    struct svcinfo *si = find_svc(s, len);//查找服务
 
     if (!si || !si->handle) {
         return 0;
@@ -196,9 +197,10 @@ uint32_t do_find_service(const uint16_t *s, size_t len, uid_t uid, pid_t spid)
         return 0;
     }
 
-    return si->handle;
+    return si->handle;//找到，返回服务句柄
 }
 
+//服务注册
 int do_add_service(struct binder_state *bs, const uint16_t *s, size_t len, uint32_t handle,
                    uid_t uid, int allow_isolated, uint32_t dumpsys_priority, pid_t spid) {
     struct svcinfo *si;
@@ -215,31 +217,31 @@ int do_add_service(struct binder_state *bs, const uint16_t *s, size_t len, uint3
         return -1;
     }
 
-    si = find_svc(s, len);
-    if (si) {
+    si = find_svc(s, len);//查找服务
+    if (si) {//已注册过
         if (si->handle) {
             ALOGE("add_service('%s',%x) uid=%d - ALREADY REGISTERED, OVERRIDE\n",
                  str8(s, len), handle, uid);
             svcinfo_death(bs, si);
         }
-        si->handle = handle;
+        si->handle = handle;//更新句柄
     } else {
-        si = malloc(sizeof(*si) + (len + 1) * sizeof(uint16_t));
+        si = malloc(sizeof(*si) + (len + 1) * sizeof(uint16_t));//申请svcinfo结构体内存
         if (!si) {
             ALOGE("add_service('%s',%x) uid=%d - OUT OF MEMORY\n",
                  str8(s, len), handle, uid);
             return -1;
         }
-        si->handle = handle;
-        si->len = len;
-        memcpy(si->name, s, (len + 1) * sizeof(uint16_t));
+        si->handle = handle;//代理句柄
+        si->len = len;//服务名字长度
+        memcpy(si->name, s, (len + 1) * sizeof(uint16_t));//服务名字
         si->name[len] = '\0';
         si->death.func = (void*) svcinfo_death;
         si->death.ptr = si;
         si->allow_isolated = allow_isolated;
         si->dumpsys_priority = dumpsys_priority;
-        si->next = svclist;
-        svclist = si;
+        si->next = svclist;//插入svclist链表的表头
+        svclist = si;//更新链表
     }
 
     binder_acquire(bs, handle);
@@ -247,6 +249,7 @@ int do_add_service(struct binder_state *bs, const uint16_t *s, size_t len, uint3
     return 0;
 }
 
+//service_manager服务
 int svcmgr_handler(struct binder_state *bs,
                    struct binder_transaction_data *txn,
                    struct binder_io *msg,
@@ -297,29 +300,30 @@ int svcmgr_handler(struct binder_state *bs,
         }
     }
 
+    //code是remote()->transact传入的
     switch(txn->code) {
-    case SVC_MGR_GET_SERVICE:
+    case SVC_MGR_GET_SERVICE://获取服务
     case SVC_MGR_CHECK_SERVICE:
-        s = bio_get_string16(msg, &len);
+        s = bio_get_string16(msg, &len);//拿到传过来的服务名称
         if (s == NULL) {
             return -1;
         }
-        handle = do_find_service(s, len, txn->sender_euid, txn->sender_pid);
+        handle = do_find_service(s, len, txn->sender_euid, txn->sender_pid);//通过名字查找服务
         if (!handle)
             break;
-        bio_put_ref(reply, handle);
+        bio_put_ref(reply, handle);//把找到的服务代理binder放进回复的数据reply
         return 0;
 
-    case SVC_MGR_ADD_SERVICE:
-        s = bio_get_string16(msg, &len);
+    case SVC_MGR_ADD_SERVICE://注册服务
+        s = bio_get_string16(msg, &len);//拿到传过来的服务名称
         if (s == NULL) {
             return -1;
         }
-        handle = bio_get_ref(msg);
+        handle = bio_get_ref(msg);//获取传过来的需注册的服务的binder代理的句柄
         allow_isolated = bio_get_uint32(msg) ? 1 : 0;
         dumpsys_priority = bio_get_uint32(msg);
         if (do_add_service(bs, s, len, handle, txn->sender_euid, allow_isolated, dumpsys_priority,
-                           txn->sender_pid))
+                           txn->sender_pid))//注册服务
             return -1;
         break;
 
@@ -353,7 +357,7 @@ int svcmgr_handler(struct binder_state *bs,
         return -1;
     }
 
-    bio_put_uint32(reply, 0);
+    bio_put_uint32(reply, 0);//把0写入reply，表示处理成功
     return 0;
 }
 

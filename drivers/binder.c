@@ -469,26 +469,27 @@ static size_t binder_buffer_size(struct binder_proc *proc,
 static void binder_insert_free_buffer(struct binder_proc *proc,
 				      struct binder_buffer *new_buffer)
 {
-	struct rb_node **p = &proc->free_buffers.rb_node;
+	struct rb_node **p = &proc->free_buffers.rb_node;//free_buffers红黑树根节点
 	struct rb_node *parent = NULL;
-	struct binder_buffer *buffer;
+	struct binder_buffer *buffer;//binder_buffer遍历临时变量
 	size_t buffer_size;
-	size_t new_buffer_size;
+	size_t new_buffer_size;//要插入的binder_buffer的大小
 
 	BUG_ON(!new_buffer->free);
 
-	new_buffer_size = binder_buffer_size(proc, new_buffer);//重新计算buffer的大小
+	new_buffer_size = binder_buffer_size(proc, new_buffer);//计算需插入的binder_buffer的大小
 
 	binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
 		     "%d: add free buffer, size %zd, at %p\n",
 		      proc->pid, new_buffer_size, new_buffer);
 
+    //红黑树遍历
 	while (*p) {
 		parent = *p;
 		buffer = rb_entry(parent, struct binder_buffer, rb_node);//根据成员rb_node拿到对应的binder_buffer
 		BUG_ON(!buffer->free);
 
-		buffer_size = binder_buffer_size(proc, buffer);//计算binder_buffer的大小
+		buffer_size = binder_buffer_size(proc, buffer);//计算当前节点的binder_buffer的大小
 		
 		//按照buffer大小找到合适的插入位置
 		if (new_buffer_size < buffer_size)
@@ -501,18 +502,20 @@ static void binder_insert_free_buffer(struct binder_proc *proc,
 	rb_insert_color(&new_buffer->rb_node, &proc->free_buffers);
 }
 
+//插入已分配的buffer红黑树
 static void binder_insert_allocated_buffer(struct binder_proc *proc,
 					   struct binder_buffer *new_buffer)
 {
-	struct rb_node **p = &proc->allocated_buffers.rb_node;
+	struct rb_node **p = &proc->allocated_buffers.rb_node;//allocated_buffers红黑树根节点
 	struct rb_node *parent = NULL;
-	struct binder_buffer *buffer;
+	struct binder_buffer *buffer;//binder_buffer遍历临时变量
 
 	BUG_ON(new_buffer->free);
 
+    //红黑树遍历，找到合适的插入位置
 	while (*p) {
 		parent = *p;
-		buffer = rb_entry(parent, struct binder_buffer, rb_node);
+		buffer = rb_entry(parent, struct binder_buffer, rb_node);//根据成员rb_node拿到对应的binder_buffer
 		BUG_ON(buffer->free);
 
 		if (new_buffer < buffer)
@@ -522,6 +525,7 @@ static void binder_insert_allocated_buffer(struct binder_proc *proc,
 		else
 			BUG();
 	}
+	//插入到红黑树里
 	rb_link_node(&new_buffer->rb_node, parent, p);
 	rb_insert_color(&new_buffer->rb_node, &proc->allocated_buffers);
 }
@@ -581,7 +585,7 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 
 	if (mm) {
 		down_write(&mm->mmap_sem);
-		vma = proc->vma;
+		vma = proc->vma;//从proc拿到用户地址空间
 		if (vma && mm != proc->vma_vm_mm) {
 			pr_err("%d: vma mm and task mm mismatch\n",
 				proc->pid);
@@ -590,7 +594,7 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 	}
 
 	if (allocate == 0)
-		goto free_range;//释放 todo
+		goto free_range;//释放物理内存
 
 	if (vma == NULL) {
 		pr_err("%d: binder_alloc_buf failed to map pages in userspace, no vma\n",
@@ -636,18 +640,18 @@ static int binder_update_page_range(struct binder_proc *proc, int allocate,
 	}
 	return 0;
 
-free_range:
+free_range://释放物理内存
 	for (page_addr = end - PAGE_SIZE; page_addr >= start;
-	     page_addr -= PAGE_SIZE) {
-		page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];
+	     page_addr -= PAGE_SIZE) {//按页大小遍历
+		page = &proc->pages[(page_addr - proc->buffer) / PAGE_SIZE];//从页指针数组取出页结构体指针
 		if (vma)
 			zap_page_range(vma, (uintptr_t)page_addr +
-				proc->user_buffer_offset, PAGE_SIZE, NULL);
+				proc->user_buffer_offset, PAGE_SIZE, NULL);//解除用户空间与物理页的映射
 err_vm_insert_page_failed:
-		unmap_kernel_range((unsigned long)page_addr, PAGE_SIZE);
+		unmap_kernel_range((unsigned long)page_addr, PAGE_SIZE);//解除内核空间与物理页的映射
 err_map_kernel_failed:
-		__free_page(*page);
-		*page = NULL;
+		__free_page(*page);//释放page结构体内存
+		*page = NULL;//指针置空
 err_alloc_page_failed:
 		;
 	}
@@ -664,7 +668,7 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 					      size_t data_size,
 					      size_t offsets_size, int is_async)
 {
-	struct rb_node *n = proc->free_buffers.rb_node;
+	struct rb_node *n = proc->free_buffers.rb_node;//free_buffers根节点
 	struct binder_buffer *buffer;
 	size_t buffer_size;
 	struct rb_node *best_fit = NULL;
@@ -679,7 +683,7 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 	}
 
 	size = ALIGN(data_size, sizeof(void *)) +
-		ALIGN(offsets_size, sizeof(void *));//字节对齐
+		ALIGN(offsets_size, sizeof(void *));//字节对齐，算出传输数据需占用空间的大小
 
 	if (size < data_size || size < offsets_size) {
 		binder_user_error("%d: got transaction with invalid size %zd-%zd\n",
@@ -697,9 +701,9 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 
     //proc->free_buffers从红黑树树根开始遍历
 	while (n) {
-		buffer = rb_entry(n, struct binder_buffer, rb_node);
+		buffer = rb_entry(n, struct binder_buffer, rb_node);//根据成员rb_node获取binder_buffer首地址
 		BUG_ON(!buffer->free);
-		buffer_size = binder_buffer_size(proc, buffer);
+		buffer_size = binder_buffer_size(proc, buffer);//计算该binder_buffer的大小
 
 		if (size < buffer_size) {
 			best_fit = n;
@@ -707,19 +711,19 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 		} else if (size > buffer_size)
 			n = n->rb_right;
 		else {
-			best_fit = n;
+			best_fit = n;//恰好相等直接退出遍历
 			break;
 		}
 	}
 	//best_fit表示从红黑树找出大小最符合（≥size且最小）的binder_buffer节点
-	if (best_fit == NULL) {
+	if (best_fit == NULL) {//空间不足
 		pr_err("%d: binder_alloc_buf size %zd failed, no address space\n",
 			proc->pid, size);
 		return NULL;
 	}
-	if (n == NULL) {//叶子节点需要重新计算buffer和buffer_size
-		buffer = rb_entry(best_fit, struct binder_buffer, rb_node);
-		buffer_size = binder_buffer_size(proc, buffer);
+	if (n == NULL) {//遍历完毕，如果n非空证明前面遍历正好找到与传输数据刚好大小相等的binder_buffer，前面已经赋值过给buffer，所以以下代码不用执行
+		buffer = rb_entry(best_fit, struct binder_buffer, rb_node);//根据成员rb_node获取相应binder_buffer
+		buffer_size = binder_buffer_size(proc, buffer);//计算该binder_buffer大小
 	}
 
 	binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
@@ -728,24 +732,24 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 
 	has_page_addr =
 		(void *)(((uintptr_t)buffer->data + buffer_size) & PAGE_MASK);
-	if (n == NULL) {
+	if (n == NULL) {//计算需分配物理内存的结束位置
 		if (size + sizeof(struct binder_buffer) + 4 >= buffer_size)
 			buffer_size = size; /* no room for other buffers 没有空间再放下一个binder_buffer的时候*/
 		else
 			buffer_size = size + sizeof(struct binder_buffer);//有剩余空间放下一个binder_buffer
 	}
 	end_page_addr =
-		(void *)PAGE_ALIGN((uintptr_t)buffer->data + buffer_size);//结束位置在下一个binder_buffer-》data
+		(void *)PAGE_ALIGN((uintptr_t)buffer->data + buffer_size);//结束位置在下一个binder_buffer->data
 	if (end_page_addr > has_page_addr)
 		end_page_addr = has_page_addr;
 	if (binder_update_page_range(proc, 1,
-	    (void *)PAGE_ALIGN((uintptr_t)buffer->data), end_page_addr, NULL))
+	    (void *)PAGE_ALIGN((uintptr_t)buffer->data), end_page_addr, NULL))//申请物理内存，并建立映射关系
 		return NULL;
 
-	rb_erase(best_fit, &proc->free_buffers);
+	rb_erase(best_fit, &proc->free_buffers);//分配出去的binder_buffer从free_buffers红黑树删除
 	buffer->free = 0;//已分配出去使用，置为0
 	binder_insert_allocated_buffer(proc, buffer);//插入到已分配的红黑树
-	if (buffer_size != size) {
+	if (buffer_size != size) {//两者不相等证明有空间分配下一个binder_buffer
 		struct binder_buffer *new_buffer = (void *)buffer->data + size;//下一个binder_buffer结构体的首地址就在分配完的大小size的后面
 
 		list_add(&new_buffer->entry, &buffer->entry);//new_buffer插入到队列
@@ -779,6 +783,7 @@ static void *buffer_end_page(struct binder_buffer *buffer)
 	return (void *)(((uintptr_t)(buffer + 1) - 1) & PAGE_MASK);
 }
 
+//释放未分配的binder_buffer内存 need to do
 static void binder_delete_free_buffer(struct binder_proc *proc,
 				      struct binder_buffer *buffer)
 {
@@ -787,7 +792,7 @@ static void binder_delete_free_buffer(struct binder_proc *proc,
 	int free_page_start = 1;
 
 	BUG_ON(proc->buffers.next == &buffer->entry);
-	prev = list_entry(buffer->entry.prev, struct binder_buffer, entry);
+	prev = list_entry(buffer->entry.prev, struct binder_buffer, entry);//拿到前一个binder_buffer
 	BUG_ON(!prev->free);
 	if (buffer_end_page(prev) == buffer_start_page(buffer)) {
 		free_page_start = 0;
@@ -798,9 +803,9 @@ static void binder_delete_free_buffer(struct binder_proc *proc,
 			      proc->pid, buffer, prev);
 	}
 
-	if (!list_is_last(&buffer->entry, &proc->buffers)) {
+	if (!list_is_last(&buffer->entry, &proc->buffers)) {//当前的binder_buffer不是proc->buffers链表的最后一个
 		next = list_entry(buffer->entry.next,
-				  struct binder_buffer, entry);
+				  struct binder_buffer, entry);//拿到后一个binder_buffer
 		if (buffer_start_page(next) == buffer_end_page(buffer)) {
 			free_page_end = 0;
 			if (buffer_start_page(next) ==
@@ -811,8 +816,8 @@ static void binder_delete_free_buffer(struct binder_proc *proc,
 				      proc->pid, buffer, prev);
 		}
 	}
-	list_del(&buffer->entry);
-	if (free_page_start || free_page_end) {
+	list_del(&buffer->entry);//从proc->buffers链表删除当前binder_buffer
+	if (free_page_start || free_page_end) {//都非0表示有物理页需要回收
 		binder_debug(BINDER_DEBUG_BUFFER_ALLOC,
 			     "%d: merge free, buffer %p do not share page%s%s with %p or %p\n",
 			     proc->pid, buffer, free_page_start ? "" : " end",
@@ -820,11 +825,11 @@ static void binder_delete_free_buffer(struct binder_proc *proc,
 		binder_update_page_range(proc, 0, free_page_start ?
 			buffer_start_page(buffer) : buffer_end_page(buffer),
 			(free_page_end ? buffer_end_page(buffer) :
-			buffer_start_page(buffer)) + PAGE_SIZE, NULL);
+			buffer_start_page(buffer)) + PAGE_SIZE, NULL);//释放物理页
 	}
 }
 
-//释放binder_buffer todo
+//释放binder_buffer
 static void binder_free_buf(struct binder_proc *proc,
 			    struct binder_buffer *buffer)
 {
@@ -856,26 +861,26 @@ static void binder_free_buf(struct binder_proc *proc,
 	binder_update_page_range(proc, 0,
 		(void *)PAGE_ALIGN((uintptr_t)buffer->data),
 		(void *)(((uintptr_t)buffer->data + buffer_size) & PAGE_MASK),
-		NULL);//释放物理内存todo
+		NULL);//释放物理内存
 	rb_erase(&buffer->rb_node, &proc->allocated_buffers);//从已分配的红黑树上删除该binder_buffer节点
-	buffer->free = 1;
+	buffer->free = 1;//free成员置1
 	if (!list_is_last(&buffer->entry, &proc->buffers)) {//如果该binder_buffer不是proc->buffers链表上的最后一个
 		struct binder_buffer *next = list_entry(buffer->entry.next,
 						struct binder_buffer, entry);//把链表上的下一个的binder_buffer找到
 
-		if (next->free) {
-			rb_erase(&next->rb_node, &proc->free_buffers);
-			binder_delete_free_buffer(proc, next);
+		if (next->free) {//下一个binder_buffer未分配
+			rb_erase(&next->rb_node, &proc->free_buffers);//将下一个binder_buffer从未分配的红黑树上删除
+			binder_delete_free_buffer(proc, next);//将下一个binder_buffer从proc->buffers链表中删除，并释放内存
 		}
 	}
-	if (proc->buffers.next != &buffer->entry) {
+	if (proc->buffers.next != &buffer->entry) {//如果该binder_buffer不是proc->buffers链表上的第一个
 		struct binder_buffer *prev = list_entry(buffer->entry.prev,
-						struct binder_buffer, entry);
+						struct binder_buffer, entry);//把链表上的前一个的binder_buffer找到
 
-		if (prev->free) {
-			binder_delete_free_buffer(proc, buffer);
-			rb_erase(&prev->rb_node, &proc->free_buffers);
-			buffer = prev;
+		if (prev->free) {//前一个binder_buffer未分配
+			binder_delete_free_buffer(proc, buffer);//将当前binder_buffer从proc->buffers链表中删除，并释放内存
+			rb_erase(&prev->rb_node, &proc->free_buffers);//将前一个binder_buffer从未分配的红黑树上删除
+			buffer = prev;//将前一个binder_buffer赋值给buffer
 		}
 	}
 	binder_insert_free_buffer(proc, buffer);//插入到未分配的红黑树
@@ -1558,7 +1563,7 @@ static void binder_transaction(struct binder_proc *proc,
 		return_error = BR_FAILED_REPLY;
 		goto err_bad_offset;
 	}
-	off_end = (void *)offp + tr->offsets_size;//整个传输数据的结束位置
+	off_end = (void *)offp + tr->offsets_size;//offsets部分的结束位置
 	off_min = 0;
 	for (; offp < off_end; offp++) {//遍历数据中的flat_binder_object
 		struct flat_binder_object *fp;
@@ -2201,7 +2206,7 @@ static int binder_thread_read(struct binder_proc *proc,
 	int ret = 0;
 	int wait_for_proc_work;
 
-	if (*consumed == 0) {//todo
+	if (*consumed == 0) {//need to do
 		if (put_user(BR_NOOP, (uint32_t __user *)ptr))
 			return -EFAULT;
 		ptr += sizeof(uint32_t);
@@ -2749,7 +2754,7 @@ static int binder_ioctl_set_ctx_mgr(struct file *filp)
 {
 	int ret = 0;
 	struct binder_proc *proc = filp->private_data;//从private_data拿到binder_proc
-	kuid_t curr_euid = current_euid();
+	kuid_t curr_euid = current_euid();//获取当前进程euid
 
 	if (binder_context_mgr_node != NULL) {
 		pr_err("BINDER_SET_CONTEXT_MGR already set\n");
@@ -2769,7 +2774,7 @@ static int binder_ioctl_set_ctx_mgr(struct file *filp)
 			goto out;
 		}
 	} else {
-		binder_context_mgr_uid = curr_euid;
+		binder_context_mgr_uid = curr_euid;//设置守护进程uid为当前进程的euid
 	}
 	binder_context_mgr_node = binder_new_node(proc, 0, 0);//新建一个binder_node
 		ret = -ENOMEM;
@@ -2964,7 +2969,7 @@ static int binder_mmap(struct file *filp, struct vm_area_struct *vma)//vma 用�
 	vma->vm_ops = &binder_vm_ops;
 	vma->vm_private_data = proc;
 
-	if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {//6、分配物理内存，并建立映射关系
+	if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {//6、分配物理内存，并建立映射关系，大小为一页
 		ret = -ENOMEM;
 		failure_string = "alloc small buf";
 		goto err_alloc_small_buf_failed;
@@ -2972,12 +2977,12 @@ static int binder_mmap(struct file *filp, struct vm_area_struct *vma)//vma 用�
 	buffer = proc->buffer;//7、内核空间首地址赋值给binder_buffer的指针buffer
 	INIT_LIST_HEAD(&proc->buffers);//8、初始化proc->buffers链表
 	list_add(&buffer->entry, &proc->buffers);//9、将binder_buffer插入到proc->buffers链表
-	buffer->free = 1;
-	binder_insert_free_buffer(proc, buffer);//10、将binder_buffer插入到未分配的buffer红黑树free_buffer
+	buffer->free = 1;//10、free成员赋值1
+	binder_insert_free_buffer(proc, buffer);//11、将binder_buffer插入到未分配的buffer红黑树free_buffer
 	proc->free_async_space = proc->buffer_size / 2;
 	barrier();
 	proc->files = get_files_struct(current);
-	proc->vma = vma;
+	proc->vma = vma;//描述用户地址空间结构体赋值
 	proc->vma_vm_mm = vma->vm_mm;
 
 	/*pr_info("binder_mmap: %d %lx-%lx maps %p\n",
