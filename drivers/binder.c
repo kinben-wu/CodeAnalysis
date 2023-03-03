@@ -211,6 +211,7 @@ static struct binder_transaction_log_entry *binder_transaction_log_add(
 	return e;
 }
 
+//进程、线程todo、等待队列的节点
 struct binder_work {
 	struct list_head entry;//双向链表结构
 	enum {
@@ -223,20 +224,21 @@ struct binder_work {
 	} type;
 };
 
+//服务实体节点
 struct binder_node {
 	int debug_id;
 	struct binder_work work;
 	union {
-		struct rb_node rb_node;
+		struct rb_node rb_node;//红黑树组织节点
 		struct hlist_node dead_node;
 	};
-	struct binder_proc *proc;
-	struct hlist_head refs;
+	struct binder_proc *proc;//所属进程
+	struct hlist_head refs;//该binder_node代理binder_ref的链表
 	int internal_strong_refs;
 	int local_weak_refs;
 	int local_strong_refs;
-	binder_uintptr_t ptr;
-	binder_uintptr_t cookie;
+	binder_uintptr_t ptr;//服务实体指针
+	binder_uintptr_t cookie;//服务实体指针
 	unsigned has_strong_ref:1;
 	unsigned pending_strong_ref:1;
 	unsigned has_weak_ref:1;
@@ -252,38 +254,40 @@ struct binder_ref_death {
 	binder_uintptr_t cookie;
 };
 
+//服务代理节点
 struct binder_ref {
 	/* Lookups needed: */
 	/*   node + proc => ref (transaction) */
 	/*   desc + proc => ref (transaction, inc/dec ref) */
 	/*   node => refs + procs (proc exit) */
 	int debug_id;
-	struct rb_node rb_node_desc;
-	struct rb_node rb_node_node;
-	struct hlist_node node_entry;
-	struct binder_proc *proc;
-	struct binder_node *node;
-	uint32_t desc;
+	struct rb_node rb_node_desc;//refs_by_desc红黑树组织节点
+	struct rb_node rb_node_node;//refs_by_node红黑树组织节点
+	struct hlist_node node_entry;//binder_ref链表组织节点
+	struct binder_proc *proc;//该ref所属进程
+	struct binder_node *node;//代理服务的实体node
+	uint32_t desc;//句柄
 	int strong;
 	int weak;
 	struct binder_ref_death *death;
 };
 
+//通信数据缓冲区
 struct binder_buffer {
-	struct list_head entry; /* free and allocated entries by address */
-	struct rb_node rb_node; /* free entry by size or allocated entry */
+	struct list_head entry; /* free and allocated entries by address */ //binder_buffer链表组织节点
+	struct rb_node rb_node; /* free entry by size or allocated entry */ //binder_buffer红黑树组织节点
 				/* by address */
-	unsigned free:1;
+	unsigned free:1;//是否分配标志
 	unsigned allow_user_free:1;
 	unsigned async_transaction:1;
 	unsigned debug_id:29;
 
-	struct binder_transaction *transaction;
+	struct binder_transaction *transaction;//所关联的binder传输事务
 
-	struct binder_node *target_node;
-	size_t data_size;
-	size_t offsets_size;
-	uint8_t data[0];
+	struct binder_node *target_node;//该buffer数据处理服务的node
+	size_t data_size;//通信数据data部分大小
+	size_t offsets_size;//通信数据offsets部分大小
+	uint8_t data[0];//通信数据首地址
 };
 
 enum binder_deferred_state {
@@ -292,35 +296,36 @@ enum binder_deferred_state {
 	BINDER_DEFERRED_RELEASE      = 0x04,
 };
 
+//进程
 struct binder_proc {
-	struct hlist_node proc_node;
-	struct rb_root threads;
-	struct rb_root nodes;
-	struct rb_root refs_by_desc;
-	struct rb_root refs_by_node;
-	int pid;
-	struct vm_area_struct *vma;
+	struct hlist_node proc_node;//binder_procs链表组织节点
+	struct rb_root threads;//该进程处理线程红黑树
+	struct rb_root nodes;//该进程服务实体红黑树
+	struct rb_root refs_by_desc;//该进程服务代理红黑树（通过desc查找）
+	struct rb_root refs_by_node;//该进程服务代理红黑树（通过node地址查找）
+	int pid;//进程pid
+	struct vm_area_struct *vma;//用户空间描述结构体
 	struct mm_struct *vma_vm_mm;
 	struct task_struct *tsk;
 	struct files_struct *files;
 	struct hlist_node deferred_work_node;
 	int deferred_work;
-	void *buffer;
-	ptrdiff_t user_buffer_offset;
+	void *buffer;//该进程映射的内核空间首地址
+	ptrdiff_t user_buffer_offset;//内核空间与用户空间的偏移量
 
-	struct list_head buffers;
-	struct rb_root free_buffers;
-	struct rb_root allocated_buffers;
+	struct list_head buffers;//binder_buffer链表
+	struct rb_root free_buffers;//未分配的binder_buffer红黑树组织节点
+	struct rb_root allocated_buffers;//已分配的binder_buffer红黑树组织节点
 	size_t free_async_space;
 
-	struct page **pages;
-	size_t buffer_size;
+	struct page **pages;//物理页结构指针数组
+	size_t buffer_size;//binder映射的空间大小
 	uint32_t buffer_free;
-	struct list_head todo;
-	wait_queue_head_t wait;
+	struct list_head todo;//进程todo队列
+	wait_queue_head_t wait;//进程等待队列
 	struct binder_stats stats;
 	struct list_head delivered_death;
-	int max_threads;
+	int max_threads;//最大线程数
 	int requested_threads;
 	int requested_threads_started;
 	int ready_threads;
@@ -337,35 +342,36 @@ enum {
 	BINDER_LOOPER_STATE_NEED_RETURN = 0x20
 };
 
+//线程
 struct binder_thread {
-	struct binder_proc *proc;
-	struct rb_node rb_node;
-	int pid;
-	int looper;
-	struct binder_transaction *transaction_stack;
-	struct list_head todo;
+	struct binder_proc *proc;//该线程所属进程
+	struct rb_node rb_node;//binder_thread红黑树组织节点
+	int pid;//线程pid
+	int looper;//循环标志位
+	struct binder_transaction *transaction_stack;//线程的binder通信事务栈，里面放的都是需要等待回复的事务
+	struct list_head todo;//线程todo队列
 	uint32_t return_error; /* Write failed, return error code in read buf */
 	uint32_t return_error2; /* Write failed, return error code in read */
 		/* buffer. Used when sending a reply to a dead process that */
 		/* we are also waiting on */
-	wait_queue_head_t wait;
+	wait_queue_head_t wait;//线程等待队列
 	struct binder_stats stats;
 };
 
 //binder传输事务的数据结构
 struct binder_transaction {
 	int debug_id;
-	struct binder_work work;
-	struct binder_thread *from;
-	struct binder_transaction *from_parent;
-	struct binder_proc *to_proc;
-	struct binder_thread *to_thread;
-	struct binder_transaction *to_parent;
+	struct binder_work work;//用来组织binder_transaction队列
+	struct binder_thread *from;//通信数据发送方线程
+	struct binder_transaction *from_parent;//binder_thread_write调用，指向该通信事务发送方线程的需等待回复的下一个事务
+	struct binder_proc *to_proc;//通讯数据的接收方进程
+	struct binder_thread *to_thread;//通讯数据的接收方处理线程，发送事务为null，回复事务为发送数据的线程
+	struct binder_transaction *to_parent;//binder_thread_read调用，指向该通信事务接收方线程的需等待回复的下一个事务
 	unsigned need_reply:1;
 	/* unsigned is_dead:1; */	/* not used at the moment */
 
-	struct binder_buffer *buffer;
-	unsigned int	code;
+	struct binder_buffer *buffer;//通信目标进程的binder_buffer，装载通信数据
+	unsigned int	code;//处理通信数据的服务指令
 	unsigned int	flags;
 	long	priority;
 	long	saved_priority;
@@ -683,7 +689,7 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 	}
 
 	size = ALIGN(data_size, sizeof(void *)) +
-		ALIGN(offsets_size, sizeof(void *));//字节对齐，算出传输数据需占用空间的大小
+		ALIGN(offsets_size, sizeof(void *));//字节对齐，算出当前通信数据需占用空间的大小
 
 	if (size < data_size || size < offsets_size) {
 		binder_user_error("%d: got transaction with invalid size %zd-%zd\n",
@@ -721,7 +727,7 @@ static struct binder_buffer *binder_alloc_buf(struct binder_proc *proc,
 			proc->pid, size);
 		return NULL;
 	}
-	if (n == NULL) {//遍历完毕，如果n非空证明前面遍历正好找到与传输数据刚好大小相等的binder_buffer，前面已经赋值过给buffer，所以以下代码不用执行
+	if (n == NULL) {//遍历完毕，如果n非空证明前面遍历正好找到与通信数据刚好大小相等的binder_buffer，前面已经赋值过给buffer，所以以下代码不用执行
 		buffer = rb_entry(best_fit, struct binder_buffer, rb_node);//根据成员rb_node获取相应binder_buffer
 		buffer_size = binder_buffer_size(proc, buffer);//计算该binder_buffer大小
 	}
@@ -1066,7 +1072,7 @@ static struct binder_ref *binder_get_ref_for_node(struct binder_proc *proc,
 		parent = *p;
 		ref = rb_entry(parent, struct binder_ref, rb_node_node);//通过成员rb_node_node获取binder_ref的首地址
 
-		if (node < ref->node)
+		if (node < ref->node)//binder_node体地址值比较
 			p = &(*p)->rb_left;
 		else if (node > ref->node)
 			p = &(*p)->rb_right;
@@ -1078,14 +1084,14 @@ static struct binder_ref *binder_get_ref_for_node(struct binder_proc *proc,
 		return NULL;
 	binder_stats_created(BINDER_STAT_REF);
 	new_ref->debug_id = ++binder_last_id;
-	new_ref->proc = proc;//所属进程
+	new_ref->proc = proc;//该binder_ref所属进程
 	new_ref->node = node;//代理的binder_node
 	//将新建的binder_ref插入到refs_by_node红黑树的合适位置（parent和p）
 	rb_link_node(&new_ref->rb_node_node, parent, p);
 	rb_insert_color(&new_ref->rb_node_node, &proc->refs_by_node);
 
 	new_ref->desc = (node == binder_context_mgr_node) ? 0 : 1;//desc字段赋值，如果是service_manager,desc统一是0
-	for (n = rb_first(&proc->refs_by_desc); n != NULL; n = rb_next(n)) {//计算desc的最终值
+	for (n = rb_first(&proc->refs_by_desc); n != NULL; n = rb_next(n)) {//计算desc的最终值 need to do
 		ref = rb_entry(n, struct binder_ref, rb_node_desc);
 		if (ref->desc > new_ref->desc)
 			break;
@@ -1109,7 +1115,7 @@ static struct binder_ref *binder_get_ref_for_node(struct binder_proc *proc,
 	rb_link_node(&new_ref->rb_node_desc, parent, p);
 	rb_insert_color(&new_ref->rb_node_desc, &proc->refs_by_desc);
 	if (node) {
-		hlist_add_head(&new_ref->node_entry, &node->refs);
+		hlist_add_head(&new_ref->node_entry, &node->refs);//将该binder_ref插入到node->refs链表
 
 		binder_debug(BINDER_DEBUG_INTERNAL_REFS,
 			     "%d new ref %d desc %d for node %d\n",
@@ -1429,7 +1435,7 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error = BR_FAILED_REPLY;
 				goto err_invalid_target_handle;
 			}
-			target_node = ref->node;//发送：获取目标进程处理传输数据的node
+			target_node = ref->node;//发送：获取目标进程处理通信数据的node
 		} else {//发送：handle为0表示要通讯的进程是service_manager
 			target_node = binder_context_mgr_node;//发送：binder_context_mgr_node是service_manager的node，在service_manager启动并成为守护进程的时候创建赋值
 			if (target_node == NULL) {
@@ -1486,7 +1492,7 @@ static void binder_transaction(struct binder_proc *proc,
 	}
 	binder_stats_created(BINDER_STAT_TRANSACTION);
 
-	tcomplete = kzalloc(sizeof(*tcomplete), GFP_KERNEL);
+	tcomplete = kzalloc(sizeof(*tcomplete), GFP_KERNEL);//申请通信完成binder_work内存
 	if (tcomplete == NULL) {
 		return_error = BR_FAILED_REPLY;
 		goto err_alloc_tcomplete_failed;
@@ -1615,7 +1621,7 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error = BR_FAILED_REPLY;
 				goto err_binder_get_ref_for_node_failed;
 			}
-			//将传输的binder类型从binder实体改成binder代理，所以非binder所属进程持有的binder引用都是binder代理
+			//将通讯数据的binder对象的binder类型从binder实体改成binder代理，所以非binder所属进程持有的binder引用都是binder代理
 			if (fp->type == BINDER_TYPE_BINDER)
 				fp->type = BINDER_TYPE_HANDLE;
 			else
@@ -1646,7 +1652,7 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error = BR_FAILED_REPLY;
 				goto err_binder_get_ref_failed;
 			}
-			if (ref->node->proc == target_proc) {//如果binder_ref代理的binder_node的所属进程与目标进程是同一进程，传输的binder类型从binder代理改成binder实体
+			if (ref->node->proc == target_proc) {//如果binder_ref代理的binder_node的所属进程与目标进程是同一进程，通信的binder对象的类型从binder代理改成binder实体
 				if (fp->type == BINDER_TYPE_HANDLE)
 					fp->type = BINDER_TYPE_BINDER;
 				else
@@ -1750,10 +1756,10 @@ static void binder_transaction(struct binder_proc *proc,
 		} else
 			target_node->has_async_transaction = 1;
 	}
-	t->work.type = BINDER_WORK_TRANSACTION;
+	t->work.type = BINDER_WORK_TRANSACTION;//事务的成员binder_work的类型设置
 	list_add_tail(&t->work.entry, target_list);//将当前transaction添加到目标进程的todo队列（以binder_work.entry组织）
-	tcomplete->type = BINDER_WORK_TRANSACTION_COMPLETE;
-	list_add_tail(&tcomplete->entry, &thread->todo);
+	tcomplete->type = BINDER_WORK_TRANSACTION_COMPLETE;//类型：通信完成
+	list_add_tail(&tcomplete->entry, &thread->todo);//把通信完成binder_work插入到当前发送线程的todo队列
 	if (target_wait)//目标进（线）程等待队列不为空
 	    //唤醒等待队列。发送事务的时候，不能确定接收方哪个线程处理，所以唤醒目标进程的等待队列；
 	    //回复事务的时候，能从发送事务确定发送方的发送线程，所以唤醒目标线程的等待队列。
@@ -2299,22 +2305,22 @@ retry:
 			break;
 
 		switch (w->type) {
-		case BINDER_WORK_TRANSACTION: {//数据传输case
+		case BINDER_WORK_TRANSACTION: {//数据通信case
 			t = container_of(w, struct binder_transaction, work);//根据成员binder_work拿到binder_transaction首地址
 		} break;
-		case BINDER_WORK_TRANSACTION_COMPLETE: {
+		case BINDER_WORK_TRANSACTION_COMPLETE: {//通信完成
 			cmd = BR_TRANSACTION_COMPLETE;
-			if (put_user(cmd, (uint32_t __user *)ptr))
+			if (put_user(cmd, (uint32_t __user *)ptr))//将BR_TRANSACTION_COMPLETE拷贝到用户空间
 				return -EFAULT;
-			ptr += sizeof(uint32_t);
+			ptr += sizeof(uint32_t);//指针后移
 
 			binder_stat_br(proc, thread, cmd);
 			binder_debug(BINDER_DEBUG_TRANSACTION_COMPLETE,
 				     "%d:%d BR_TRANSACTION_COMPLETE\n",
 				     proc->pid, thread->pid);
 
-			list_del(&w->entry);
-			kfree(w);
+			list_del(&w->entry);//将binder_work从所在队列删除
+			kfree(w);//释放binder_work内存
 			binder_stats_deleted(BINDER_STAT_TRANSACTION_COMPLETE);
 		} break;
 		case BINDER_WORK_NODE: {
@@ -2969,7 +2975,7 @@ static int binder_mmap(struct file *filp, struct vm_area_struct *vma)//vma 用�
 	vma->vm_ops = &binder_vm_ops;
 	vma->vm_private_data = proc;
 
-	if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {//6、分配物理内存，并建立映射关系，大小为一页
+	if (binder_update_page_range(proc, 1, proc->buffer, proc->buffer + PAGE_SIZE, vma)) {//6、分配物理内存，并建立映射关系，大小为一页。为什么不申请整个binder_mmap的大小128k？因为需要节省物理内存，后续等需要用的时候再申请。
 		ret = -ENOMEM;
 		failure_string = "alloc small buf";
 		goto err_alloc_small_buf_failed;

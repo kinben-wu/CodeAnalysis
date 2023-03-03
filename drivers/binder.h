@@ -127,7 +127,7 @@ enum transaction_flags {
 	TF_ACCEPT_FDS	= 0x10,	/* allow replies with file descriptors */
 };
 
-//binder实际传输的数据的结构
+//binder实际通信的数据的结构
 struct binder_transaction_data {
 	/* The first two are only used for bcTRANSACTION and brTRANSACTION,
 	 * identifying the target and contents of the transaction.
@@ -137,9 +137,9 @@ struct binder_transaction_data {
 		__u32	handle;
 		/* target descriptor of return transaction */
 		binder_uintptr_t ptr;
-	} target;//目标服务的地址
-	binder_uintptr_t	cookie;	/* target object cookie *///目标服务的地址
-	__u32		code;		/* transaction command */
+	} target;//处理通信数据的服务的地址
+	binder_uintptr_t	cookie;	/* target object cookie *///处理通信数据的服务的地址
+	__u32		code;		/* transaction command *///处理通信数据的服务指令
 
 	/* General information about the transaction. */
 	__u32	        flags;
@@ -155,12 +155,12 @@ struct binder_transaction_data {
 	union {
 		struct {
 			/* transaction data */
-			binder_uintptr_t	buffer;
+			binder_uintptr_t	buffer;//通信数据data部分首地址
 			/* offsets from buffer to flat_binder_object structs */
-			binder_uintptr_t	offsets;
+			binder_uintptr_t	offsets;//通信数据offsets部分首地址
 		} ptr;
 		__u8	buf[8];
-	} data;//传输数据首地址
+	} data;//通信数据首地址
 };
 
 struct binder_ptr_cookie {
