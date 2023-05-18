@@ -306,9 +306,9 @@ public final class HelloKt {
     });
 }
 ```
-label的初始值为0，若`var10000 = HelloKt.get(this)`为COROUTINE_SUSPENDED，该方法会被挂起，表示等待执行结果。
+label的初始值为0，若`var10000 = HelloKt.get(this)`为COROUTINE_SUSPENDED，直接return，交出cpu控制权。
 如果不为为COROUTINE_SUSPENDED，则表示马上就拿到结果，那么直接执行后续逻辑。
-这里调用的get方法是个耗时方法，不会马上拿到结果，所以该方法被挂起，等待执行get方法。
+这里调用的get方法是个suspend方法。
 
 ### Builders.common.kt
 10、withContext
@@ -397,7 +397,7 @@ Dispatchers.IO没有继承CopyableThreadContextElement，所以hasCopyableElemen
 所以newContext = Dispatchers.IO。
 所以newContext !== oldContext。
 oldContext[ContinuationInterceptor] = EmptyCoroutineContext[ContinuationInterceptor] = null
-newContext[ContinuationInterceptord] = Dispatchers.IO[ContinuationInterceptor] = DefaultIoScheduler[ContinuationInterceptor]
+newContext[ContinuationInterceptor] = Dispatchers.IO[ContinuationInterceptor] = DefaultIoScheduler[ContinuationInterceptor]
 其中，DefaultIoScheduler继承ExecutorCoroutineDispatcher继承CoroutineDispatcher
 ```kotlin
 //CoroutineDispatcher.kt
@@ -420,6 +420,19 @@ public override operator fun <E : CoroutineContext.Element> get(key: CoroutineCo
     return if (ContinuationInterceptor === key) this as E else null
 }
 ```
+
+```kotlin
+@SinceKotlin("1.3")
+public interface ContinuationInterceptor : CoroutineContext.Element {
+    /**
+     * The key that defines *the* context interceptor.
+     */
+    companion object Key : CoroutineContext.Key<ContinuationInterceptor>
+}
+```
+此处get方法传入的key是ContinuationInterceptor(kotlin语法糖，ContinuationInterceptor相当于ContinuationInterceptor.Key，从编译后的代码可以看出)
+可见ContinuationInterceptor is AbstractCoroutineContextKey 是false
+而ContinuationInterceptor === key 是true
 所以DefaultIoScheduler[ContinuationInterceptor]=DefaultIoScheduler。
 所以newContext[ContinuationInterceptord] ！= oldContext[ContinuationInterceptor]，所以执行
 ```kotlin
