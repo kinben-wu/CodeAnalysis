@@ -203,13 +203,13 @@ void release_object(const sp<ProcessState>& proc,
 inline static status_t finish_flatten_binder(
     const sp<IBinder>& /*binder*/, const flat_binder_object& flat, Parcel* out)
 {
-    return out->writeObject(flat, false);
+    return out->writeObject(flat, false);//将flat_binder_object写入Parcel
 }
 
 status_t flatten_binder(const sp<ProcessState>& /*proc*/,
     const sp<IBinder>& binder, Parcel* out)
 {
-    flat_binder_object obj;
+    flat_binder_object obj;//声明flat_binder_object结构体
 
     if (IPCThreadState::self()->backgroundSchedulingDisabled()) {
         /* minimum priority for all nodes is nice 0 */
@@ -220,23 +220,23 @@ status_t flatten_binder(const sp<ProcessState>& /*proc*/,
     }
 
     if (binder != NULL) {
-        IBinder *local = binder->localBinder();
-        if (!local) {
-            BpBinder *proxy = binder->remoteBinder();
+        IBinder *local = binder->localBinder();//获取binder实体
+        if (!local) {//binder实体为空
+            BpBinder *proxy = binder->remoteBinder();//获取binder代理
             if (proxy == NULL) {
                 ALOGE("null proxy");
             }
             const int32_t handle = proxy ? proxy->handle() : 0;
-            obj.hdr.type = BINDER_TYPE_HANDLE;
+            obj.hdr.type = BINDER_TYPE_HANDLE;//类型为binder代理
             obj.binder = 0; /* Don't pass uninitialized stack data to a remote process */
-            obj.handle = handle;
+            obj.handle = handle;//binder代理句柄
             obj.cookie = 0;
-        } else {
-            obj.hdr.type = BINDER_TYPE_BINDER;
-            obj.binder = reinterpret_cast<uintptr_t>(local->getWeakRefs());
-            obj.cookie = reinterpret_cast<uintptr_t>(local);
+        } else {//binder实体非空
+            obj.hdr.type = BINDER_TYPE_BINDER;//类型为binder实体
+            obj.binder = reinterpret_cast<uintptr_t>(local->getWeakRefs());//binder实体弱引用赋给binder成员
+            obj.cookie = reinterpret_cast<uintptr_t>(local);//binder实体赋给cookie成员
         }
-    } else {
+    } else {//binder为空
         obj.hdr.type = BINDER_TYPE_BINDER;
         obj.binder = 0;
         obj.cookie = 0;
@@ -304,15 +304,15 @@ inline static status_t finish_unflatten_binder(
 status_t unflatten_binder(const sp<ProcessState>& proc,
     const Parcel& in, sp<IBinder>* out)
 {
-    const flat_binder_object* flat = in.readObject(false);
+    const flat_binder_object* flat = in.readObject(false);//从Parcel读出flat_binder_object
 
     if (flat) {
         switch (flat->hdr.type) {
-            case BINDER_TYPE_BINDER:
-                *out = reinterpret_cast<IBinder*>(flat->cookie);
+            case BINDER_TYPE_BINDER://binder实体类型
+                *out = reinterpret_cast<IBinder*>(flat->cookie);//cookie成员赋给out
                 return finish_unflatten_binder(NULL, *flat, in);
-            case BINDER_TYPE_HANDLE:
-                *out = proc->getStrongProxyForHandle(flat->handle);
+            case BINDER_TYPE_HANDLE://binder代理类型
+                *out = proc->getStrongProxyForHandle(flat->handle);//通过句柄构造binder代理再赋给out
                 return finish_unflatten_binder(
                     static_cast<BpBinder*>(out->get()), *flat, in);
         }
@@ -323,12 +323,12 @@ status_t unflatten_binder(const sp<ProcessState>& proc,
 status_t unflatten_binder(const sp<ProcessState>& proc,
     const Parcel& in, wp<IBinder>* out)
 {
-    const flat_binder_object* flat = in.readObject(false);
+    const flat_binder_object* flat = in.readObject(false);//从Parcel读出flat_binder_object
 
     if (flat) {
         switch (flat->hdr.type) {
-            case BINDER_TYPE_BINDER:
-                *out = reinterpret_cast<IBinder*>(flat->cookie);
+            case BINDER_TYPE_BINDER://binder实体
+                *out = reinterpret_cast<IBinder*>(flat->cookie);//cookie成员赋给out
                 return finish_unflatten_binder(NULL, *flat, in);
             case BINDER_TYPE_WEAK_BINDER:
                 if (flat->binder != 0) {
@@ -339,7 +339,7 @@ status_t unflatten_binder(const sp<ProcessState>& proc,
                     *out = NULL;
                 }
                 return finish_unflatten_binder(NULL, *flat, in);
-            case BINDER_TYPE_HANDLE:
+            case BINDER_TYPE_HANDLE://binder代理
             case BINDER_TYPE_WEAK_HANDLE:
                 *out = proc->getWeakProxyForHandle(flat->handle);
                 return finish_unflatten_binder(
@@ -666,7 +666,7 @@ status_t Parcel::finishWrite(size_t len)
     }
 
     //printf("Finish write of %d\n", len);
-    mDataPos += len;
+    mDataPos += len;//偏移量指针mDataPos往后移动len大小
     ALOGV("finishWrite Setting data pos of %p to %zu", this, mDataPos);
     if (mDataPos > mDataSize) {
         mDataSize = mDataPos;
@@ -1306,9 +1306,9 @@ status_t Parcel::writeObject(const flat_binder_object& val, bool nullMetaData)
 {
     const bool enoughData = (mDataPos+sizeof(val)) <= mDataCapacity;
     const bool enoughObjects = mObjectsSize < mObjectsCapacity;
-    if (enoughData && enoughObjects) {
+    if (enoughData && enoughObjects) {//缓冲区空间足够
 restart_write:
-        *reinterpret_cast<flat_binder_object*>(mData+mDataPos) = val;
+        *reinterpret_cast<flat_binder_object*>(mData+mDataPos) = val;//将binder结构体赋值在mData+mDataPos的位置
 
         // remember if it's a file descriptor
         if (val.hdr.type == BINDER_TYPE_FD) {
@@ -1321,12 +1321,12 @@ restart_write:
 
         // Need to write meta-data?
         if (nullMetaData || val.binder != 0) {
-            mObjects[mObjectsSize] = mDataPos;
+            mObjects[mObjectsSize] = mDataPos;//保存binder对象在Parcel缓冲区所在的偏移量
             acquire_object(ProcessState::self(), val, this, &mOpenAshmemSize);
-            mObjectsSize++;
+            mObjectsSize++;//binder对象数组数量+1
         }
 
-        return finishWrite(sizeof(flat_binder_object));
+        return finishWrite(sizeof(flat_binder_object));//偏移量指针mDataPos往后移动binder对象大小
     }
 
     if (!enoughData) {
@@ -2338,12 +2338,12 @@ status_t Parcel::read(FlattenableHelperInterface& val) const
 }
 const flat_binder_object* Parcel::readObject(bool nullMetaData) const
 {
-    const size_t DPOS = mDataPos;
+    const size_t DPOS = mDataPos;//偏移量
     if ((DPOS+sizeof(flat_binder_object)) <= mDataSize) {
         const flat_binder_object* obj
-                = reinterpret_cast<const flat_binder_object*>(mData+DPOS);
-        mDataPos = DPOS + sizeof(flat_binder_object);
-        if (!nullMetaData && (obj->cookie == 0 && obj->binder == 0)) {
+                = reinterpret_cast<const flat_binder_object*>(mData+DPOS);//通过mData与当前偏移量找到binder实例flat_binder_object
+        mDataPos = DPOS + sizeof(flat_binder_object);//偏移量指针后移
+        if (!nullMetaData && (obj->cookie == 0 && obj->binder == 0)) {//binder为空的情况
             // When transferring a NULL object, we don't write it into
             // the object list, so we don't want to check for it when
             // reading.
@@ -2352,9 +2352,9 @@ const flat_binder_object* Parcel::readObject(bool nullMetaData) const
         }
 
         // Ensure that this object is valid...
-        binder_size_t* const OBJS = mObjects;
-        const size_t N = mObjectsSize;
-        size_t opos = mNextObjectHint;
+        binder_size_t* const OBJS = mObjects;//binder对象数组
+        const size_t N = mObjectsSize;//binder对象数组size
+        size_t opos = mNextObjectHint;//下一个binder的数组索引
 
         if (N > 0) {
             ALOGV("Parcel %p looking for obj at %zu, hint=%zu",
@@ -2363,32 +2363,32 @@ const flat_binder_object* Parcel::readObject(bool nullMetaData) const
             // Start at the current hint position, looking for an object at
             // the current data position.
             if (opos < N) {
-                while (opos < (N-1) && OBJS[opos] < DPOS) {
+                while (opos < (N-1) && OBJS[opos] < DPOS) {//修正binder数组索引
                     opos++;
                 }
             } else {
-                opos = N-1;
+                opos = N-1;//opos为最大索引
             }
-            if (OBJS[opos] == DPOS) {
+            if (OBJS[opos] == DPOS) {//修正完成
                 // Found it!
                 ALOGV("Parcel %p found obj %zu at index %zu with forward search",
                      this, DPOS, opos);
-                mNextObjectHint = opos+1;
+                mNextObjectHint = opos+1;//下一个binder数组索引+1
                 ALOGV("readObject Setting data pos of %p to %zu", this, mDataPos);
-                return obj;
+                return obj;//返回flat_binder_object对象指针
             }
 
             // Look backwards for it...
-            while (opos > 0 && OBJS[opos] > DPOS) {
+            while (opos > 0 && OBJS[opos] > DPOS) {//如果顺序修正不了，则反向修正
                 opos--;
             }
-            if (OBJS[opos] == DPOS) {
+            if (OBJS[opos] == DPOS) {//修正完成
                 // Found it!
                 ALOGV("Parcel %p found obj %zu at index %zu with backward search",
                      this, DPOS, opos);
-                mNextObjectHint = opos+1;
+                mNextObjectHint = opos+1;//下一个binder数组索引+1
                 ALOGV("readObject Setting data pos of %p to %zu", this, mDataPos);
-                return obj;
+                return obj;//返回flat_binder_object对象指针
             }
         }
         ALOGW("Attempt to read object from Parcel %p at offset %zu that is not in the object list",

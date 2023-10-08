@@ -740,8 +740,8 @@ IPCThreadState::IPCThreadState()
 {
     pthread_setspecific(gTLS, this);
     clearCaller();
-    mIn.setDataCapacity(256);
-    mOut.setDataCapacity(256);
+    mIn.setDataCapacity(256);//调用malloc分配数据缓冲区内存
+    mOut.setDataCapacity(256);//调用malloc分配数据缓冲区内存
 }
 
 IPCThreadState::~IPCThreadState()

@@ -282,10 +282,10 @@ sp<IBinder> ProcessState::getStrongProxyForHandle(int32_t handle)
                    return NULL;
             }
 
-            b = BpBinder::create(handle);
-            e->binder = b;
+            b = BpBinder::create(handle);//创建BpBinder，句柄是handle
+            e->binder = b;//赋值
             if (b) e->refs = b->getWeakRefs();
-            result = b;
+            result = b;//赋值
         } else {
             // This little bit of nastyness is to allow us to add a primary
             // reference to the remote proxy when this team doesn't have one
@@ -295,7 +295,7 @@ sp<IBinder> ProcessState::getStrongProxyForHandle(int32_t handle)
         }
     }
 
-    return result;
+    return result;//返回BpBinder
 }
 
 wp<IBinder> ProcessState::getWeakProxyForHandle(int32_t handle)
