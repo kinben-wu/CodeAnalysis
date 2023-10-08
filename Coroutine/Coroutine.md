@@ -19,6 +19,7 @@ fun main() {
         }
 
     }).resume(Unit)
+    println("next")
 }
 suspend fun get(): String {
     return withContext(Dispatchers.IO) {
@@ -131,6 +132,22 @@ final class HelloKt$main$1 extends kotlin/coroutines/jvm/internal/SuspendLambda 
 得知，0中的suspend代码体会被编译成一个类HelloKt$main$1，这个类继承SuspendLambda并实现Function1接口。
 其中，SuspendLambda继承ContinuationImpl继承BaseContinuationImpl继承Continuation。
 SuspendLambda是继承了BaseContinuationImpl，所以(this is BaseContinuationImpl)为true，执行create(probeCompletion)。
+```kotlin
+@SinceKotlin("1.3")
+// Suspension lambdas inherit from this class
+internal abstract class SuspendLambda(
+    public override val arity: Int,
+    completion: Continuation<Any?>?
+) : ContinuationImpl(completion), FunctionBase<Any?>, SuspendFunction {
+    constructor(arity: Int) : this(arity, null)
+
+    public override fun toString(): String =
+        if (completion == null)
+            Reflection.renderLambdaToString(this) // this is lambda
+        else
+            super.toString() // this is continuation
+}
+```
 
 ### ContinuationImpl.kt
 
@@ -169,6 +186,8 @@ public final class HelloKt {
 ```
 得知，create就是重新new一个HelloKt$main$1实例，并把4中的completion传入。
 综上，4中，createCoroutineUnintercepted(completion) = new HelloKt$main$1(completion)。
+所以，扩展函数createCoroutineUnintercepted的意义在于将他的扩展对象协程体suspend () -> T，变成一个ContinuationImpl协程对象。
+（实际是在编译阶段实现，协程体会被编译成ContinuationImpl的子类）
 
 ### IntrinsicsJvm.kt
 6、intercepted
@@ -192,6 +211,9 @@ internal abstract class ContinuationImpl(
 
     public override val context: CoroutineContext
         get() = _context!!
+
+    @Transient
+    private var intercepted: Continuation<Any?>? = null
 
     public fun intercepted(): Continuation<Any?> =
         intercepted
@@ -361,7 +383,7 @@ public suspend inline fun <T> suspendCoroutineUninterceptedOrReturn(crossinline 
 }
 ```
 
-`suspendCoroutineUninterceptedOrReturn`没有源码，直接看编译后的字节码，发现是执行传入的block。
+`suspendCoroutineUninterceptedOrReturn`没有源码，直接看编译后的字节码，发现是执行传入的block，传入的参数是表示该方法的调用方所在的协程体的Continuation对象，block的最后一句的结果作为返回值返回。
 其中参数uCont是从9中`var10000 = HelloKt.get(this)`传入的this，类型为Continuation。
 * `val oldContext = uCont.context`  
 oldContext = HelloKt$main$1的context = EmptyCoroutineContext
@@ -621,6 +643,7 @@ public final override fun <T> interceptContinuation(continuation: Continuation<T
     DispatchedContinuation(this, continuation)
 ```
 创建一个DispatchedContinuation实例，并返回。这里的参数continuation就是在13中创建HelloKt$get$2类型的实例。
+这个方法的意思是如果协程上下文context含有拦截器（ContinuationInterceptor有值），则将Continuation升级为DispatchedContinuation，以便后续协程恢复的时候作分发。
 
 ### DispatchedContinuation.kt
 17、resumeCancellableWith
@@ -838,7 +861,7 @@ private fun Worker?.submitToLocalQueue(task: Task, tailDispatch: Boolean): Task?
 ```
 当Worker为空的时候，直接返回task。那么notAdded是非空，执行addToGlobalQueue。
 (这里假设当前线程是工作线程Worker，会先判断该线程状态是否为终止或者阻塞，两者都否表示当前线程可用，于是将任务插入队列localQueue，插入成功返回null。
-localQueue是Worker自身的队列。如果当前线程状态是终止或阻塞，则调用addToGlobalQueue将任务插入到CoroutineScheduler的公共队列globalCpuQueue或globalBlockingQueue)
+localQueue是Worker自身的队列。如果当前Worker线程状态是终止或阻塞，则调用addToGlobalQueue将任务插入到CoroutineScheduler的公共队列globalCpuQueue或globalBlockingQueue)
 
 4. `addToGlobalQueue(notAdded)`
 ```kotlin
@@ -887,7 +910,7 @@ private fun tryUnpark(): Boolean {
 }
 ```
 parkedWorkersStackPop：开启一个死循环，从等待的Worker堆栈中提取一个Worker，如果失败，直接返回false。如果成功，则尝试修改Worker的状态，
-即尝试将worker.workerCtl从PARKED修改为CLAIMED，如果成功，则将该线程唤醒，并返回true。
+即尝试将worker.workerCtl从PARKED修改为CLAIMED，如果成功，则调用LockSupport.unpark将该worker线程唤醒，并返回true。
 这里先假设刚开始，没有worker，那么tryUnpark返回false。这种情况下将会创建一个worker。
 5. 2)tryCreateWorker
 ```kotlin
@@ -909,7 +932,8 @@ private fun tryCreateWorker(state: Long = controlState.value): Boolean {
     return false
 }
 ```
-调用createNewWorker创建worker
+如果已经达到核心线程数的上限了，就不再创建worker线程了
+否则，调用createNewWorker创建worker
 5. 3）createNewWorker
 ```kotlin
 private fun createNewWorker(): Int {
@@ -942,6 +966,41 @@ private fun createNewWorker(): Int {
 可以看到，里面直接new了一个Worker实例，并把实例加到Worker数组workers管理缓存复用。然后调用start启动该worker。
 无论是提取一个存在的等待的worker唤醒，还是创建一个worker启动，都会执行worker里面的逻辑。
 总结一下dispatch的逻辑，创建一个任务task，然后添加到队列里面，然后唤醒一个worker或新启动一个worker。
+
+
+在看Worker的run方法前，先看看该方法的的返回情况，随着createNewWorker的最后`return cpuWorkers + 1`
+方法一路返回createNewWorker-》tryCreateWorker-》signalBlockingWork-》多重dispatch-》resumeCancellableWith-》startCoroutineCancellable
+回到10，接着执行`coroutine.getResult()`
+
+###Builders.common.kt
+23、coroutine.getResult()
+```kotlin
+fun getResult(): Any? {
+    if (trySuspend()) return COROUTINE_SUSPENDED
+    // otherwise, onCompletionInternal was already invoked & invoked tryResume, and the result is in the state
+    val state = this.state.unboxState()
+    if (state is CompletedExceptionally) throw state.cause
+    @Suppress("UNCHECKED_CAST")
+    return state as T
+}
+
+private fun trySuspend(): Boolean {
+    _decision.loop { decision ->
+        when (decision) {
+            UNDECIDED -> if (this._decision.compareAndSet(UNDECIDED, SUSPENDED)) return true
+            RESUMED -> return false
+            else -> error("Already suspended")
+        }
+    }
+}
+```
+该方法会调用`trySuspend`尝试挂起当前协程，trySuspend会通过cas设置变量_decision为挂起状态SUSPENDED，成功则返回true。
+然后getResult就会返回COROUTINE_SUSPENDED，然后一路返回getResult-》suspendCoroutineUninterceptedOrReturn-》withContext-》get。
+所以get方法也是返回COROUTINE_SUSPENDED。结合第9步中invokeSuspend的逻辑得知，invokeSuspend也是返回COROUTINE_SUSPENDED。
+结合第8步，resumeWith方法也直接返回。一路返回resumeWith-》-第3步resumeWith-》主程序resume。
+即getResult-》suspendCoroutineUninterceptedOrReturn-》withContext-》get-》invokeSuspend-》resumeWith-》-第3步resumeWith-》主程序resume。
+此时，协程在调用线程就被挂起，调用线程会接着往下执行。
+
 接下来看看Worker里面做了什么工作。  
 
 23、runWorker
@@ -1000,13 +1059,59 @@ internal inner class Worker private constructor() : Thread() {
     }
 }
 ```
+```kotlin
+private fun tryPark() {
+    if (!inStack()) {
+        parkedWorkersStackPush(this)
+        return
+    }
+    assert { localQueue.size == 0 }
+    workerCtl.value = PARKED // Update value once
+    /*
+     * inStack() prevents spurious wakeups, while workerCtl.value == PARKED
+     * prevents the following race:
+     *
+     * - T2 scans the queue, adds itself to the stack, goes to rescan
+     * - T2 suspends in 'workerCtl.value = PARKED' line
+     * - T1 pops T2 from the stack, claims workerCtl, suspends
+     * - T2 fails 'while (inStack())' check, goes to full rescan
+     * - T2 adds itself to the stack, parks
+     * - T1 unparks T2, bails out with success
+     * - T2 unparks and loops in 'while (inStack())'
+     */
+    while (inStack() && workerCtl.value == PARKED) { // Prevent spurious wakeups
+        if (isTerminated || state == WorkerState.TERMINATED) break
+        tryReleaseCpu(WorkerState.PARKING)
+        interrupted() // Cleanup interruptions
+        park()
+    }
+}
+```
+```kotlin
+private fun park() {
+    // set termination deadline the first time we are here (it is reset in idleReset)
+    if (terminationDeadline == 0L) terminationDeadline = System.nanoTime() + idleWorkerKeepAliveNs
+    // actually park
+    LockSupport.parkNanos(idleWorkerKeepAliveNs)
+    // try terminate when we are idle past termination deadline
+    // note that comparison is written like this to protect against potential nanoTime wraparound
+    if (System.nanoTime() - terminationDeadline >= 0) {
+        terminationDeadline = 0L // if attempt to terminate worker fails we'd extend deadline again
+        tryTerminateWorker()
+    }
+}
+```
 Worker继承了Thread。所以会执行run方法，再执行runWorker。
 开启一个循环，不停通过findTask从队列里面取出task，然后拿到以后，调用executeTask执行任务。
 如果没取到，会判断是否是延时任务，如果是会重新再拿一次，这是因为在这期间，有可能延时时间已到，所以直接重试一次。如果拿到就返回task。
 如果还拿不到，则将线程阻塞延迟时间。
-如果不是延时任务，直接调用`tryPark`阻塞线程。其中有个变量idleWorkerKeepAliveNs，表示worker空闲存活的最长时间。
+如果不是延时任务，直接调用`tryPark`阻塞线程。
+`tryPark`方法会先将当前worker压入阻塞worker栈中，然后返回，再次进入循环去取task，避免miss一些task（见代码注释）。
+然后如果还是没task的话，下次进入`tryPark`，会将worker的状态置为PARKED，然后调用`park`方法阻塞线程。
+`park`方法其中有个变量idleWorkerKeepAliveNs，表示worker空闲存活的最长时间。
 worker会先`parkNanos(idleWorkerKeepAliveNs)`，如果期间被被唤醒，则再循环去取任务执行。
 如果过了idleWorkerKeepAliveNs，仍然未被唤醒，则将状态置为TERMINATED，终止线程。
+
 
 ```kotlin
 1. findTask
@@ -1287,6 +1392,7 @@ public fun <T> Continuation<T>.resumeCancellableWith(
 }
 ```
 因为HelloKt$main$1不继承DispatchedContinuation，所以执行`resumeWith(result)`。
+如果该Continuation是DispatchedContinuation，则走DispatchedContinuation.resumeCancellableWith方法，表示协程的恢复需要分发。
 
 同8，执行HelloKt$main$1的invokeSuspend方法，入参为HelloKt$get$2的invokeSuspend的结果。
 ```java
