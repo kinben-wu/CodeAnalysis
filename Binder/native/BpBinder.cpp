@@ -132,7 +132,7 @@ BpBinder* BpBinder::create(int32_t handle) {
         }
         sTrackingMap[trackedUid]++;
     }
-    return new BpBinder(handle, trackedUid);
+    return new BpBinder(handle, trackedUid);//通过句柄创建一个BpBinder实例返回
 }
 
 BpBinder::BpBinder(int32_t handle, int32_t trackedUid)

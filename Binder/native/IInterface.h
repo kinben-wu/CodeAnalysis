@@ -41,7 +41,7 @@ protected:
 template<typename INTERFACE>
 inline sp<INTERFACE> interface_cast(const sp<IBinder>& obj)
 {
-    return INTERFACE::asInterface(obj);
+    return INTERFACE::asInterface(obj);//交给各INTERFACE的asInterface方法处理
 }
 
 // ----------------------------------------------------------------------
@@ -86,6 +86,7 @@ protected:
             I##INTERFACE::getInterfaceDescriptor() const {              \
         return I##INTERFACE::descriptor;                                \
     }                                                                   \
+    //定义各INTERFACE的asInterface方法
     ::android::sp<I##INTERFACE> I##INTERFACE::asInterface(              \
             const ::android::sp<::android::IBinder>& obj)               \
     {                                                                   \
@@ -93,9 +94,9 @@ protected:
         if (obj != NULL) {                                              \
             intr = static_cast<I##INTERFACE*>(                          \
                 obj->queryLocalInterface(                               \
-                        I##INTERFACE::descriptor).get());               \
-            if (intr == NULL) {                                         \
-                intr = new Bp##INTERFACE(obj);                          \
+                        I##INTERFACE::descriptor).get());//首先先从本地查询，判断obj是否为binder实体
+            if (intr == NULL) {//空表示obj不是binder实体，证明是binder代理
+                intr = new Bp##INTERFACE(obj);//直接创建一个INTERFACE代理实例，并传入binder代理
             }                                                           \
         }                                                               \
         return intr;                                                    \
@@ -115,22 +116,23 @@ template<typename INTERFACE>
 inline sp<IInterface> BnInterface<INTERFACE>::queryLocalInterface(
         const String16& _descriptor)
 {
-    if (_descriptor == INTERFACE::descriptor) return this;
+    if (_descriptor == INTERFACE::descriptor) return this;//比对描述字符串，符合直接返回自己
     return NULL;
 }
 
 template<typename INTERFACE>
 inline const String16& BnInterface<INTERFACE>::getInterfaceDescriptor() const
 {
-    return INTERFACE::getInterfaceDescriptor();
+    return INTERFACE::getInterfaceDescriptor();//交给各INTERFACE的getInterfaceDescriptor方法处理
 }
 
 template<typename INTERFACE>
 IBinder* BnInterface<INTERFACE>::onAsBinder()
 {
-    return this;
+    return this;//binder实体的话直接返回自身
 }
 
+//定义BpInterface的构造方法
 template<typename INTERFACE>
 inline BpInterface<INTERFACE>::BpInterface(const sp<IBinder>& remote)
     : BpRefBase(remote)
@@ -140,7 +142,7 @@ inline BpInterface<INTERFACE>::BpInterface(const sp<IBinder>& remote)
 template<typename INTERFACE>
 inline IBinder* BpInterface<INTERFACE>::onAsBinder()
 {
-    return remote();
+    return remote();//binder代理直接返回BpRefBase的成员mRemote，实际类型是BpBinder
 }
     
 // ----------------------------------------------------------------------
