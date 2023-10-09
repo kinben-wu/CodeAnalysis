@@ -237,12 +237,12 @@ status_t flatten_binder(const sp<ProcessState>& /*proc*/,
             obj.cookie = reinterpret_cast<uintptr_t>(local);//binder实体赋给cookie成员
         }
     } else {//binder为空
-        obj.hdr.type = BINDER_TYPE_BINDER;
-        obj.binder = 0;
-        obj.cookie = 0;
+        obj.hdr.type = BINDER_TYPE_BINDER;//类型仍为binder实体
+        obj.binder = 0;//空
+        obj.cookie = 0;//空
     }
 
-    return finish_flatten_binder(binder, obj, out);
+    return finish_flatten_binder(binder, obj, out);//写入parcel
 }
 
 status_t flatten_binder(const sp<ProcessState>& /*proc*/,

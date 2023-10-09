@@ -1533,7 +1533,7 @@ static void binder_transaction(struct binder_proc *proc,
 	trace_binder_transaction(reply, t, target_node);
 
 	t->buffer = binder_alloc_buf(target_proc, tr->data_size,
-		tr->offsets_size, !reply && (t->flags & TF_ONE_WAY));//在目标进程中申请binder buffer内存
+		tr->offsets_size, !reply && (t->flags & TF_ONE_WAY));//在目标进程中申请binder buffer空间
 	if (t->buffer == NULL) {
 		return_error = BR_FAILED_REPLY;
 		goto err_binder_alloc_buf_failed;
@@ -1571,7 +1571,7 @@ static void binder_transaction(struct binder_proc *proc,
 	}
 	off_end = (void *)offp + tr->offsets_size;//offsets部分的结束位置
 	off_min = 0;
-	for (; offp < off_end; offp++) {//遍历数据中的flat_binder_object
+	for (; offp < off_end; offp++) {//遍历传输数据中的flat_binder_object
 		struct flat_binder_object *fp;
 
 		if (*offp > t->buffer->data_size - sizeof(*fp) ||
