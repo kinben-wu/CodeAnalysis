@@ -328,7 +328,7 @@ status_t unflatten_binder(const sp<ProcessState>& proc,
     if (flat) {
         switch (flat->hdr.type) {
             case BINDER_TYPE_BINDER://binder实体
-                *out = reinterpret_cast<IBinder*>(flat->cookie);//cookie成员赋给out
+                *out = reinterpret_cast<IBinder*>(flat->cookie);//cookie成员赋给out，前面知道cookie成员保存的就是实体binder对象的指针
                 return finish_unflatten_binder(NULL, *flat, in);
             case BINDER_TYPE_WEAK_BINDER:
                 if (flat->binder != 0) {
