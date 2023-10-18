@@ -56,7 +56,7 @@ static HLIST_HEAD(binder_dead_nodes);
 
 static struct dentry *binder_debugfs_dir_entry_root;
 static struct dentry *binder_debugfs_dir_entry_proc;
-static struct binder_node *binder_context_mgr_node;
+static struct binder_node *binder_context_mgr_node;//service manager的binder_node
 static kuid_t binder_context_mgr_uid = INVALID_UID;
 static int binder_last_id;
 static struct workqueue_struct *binder_deferred_workqueue;
@@ -945,8 +945,8 @@ static struct binder_node *binder_new_node(struct binder_proc *proc,
 	//成员赋值
 	node->debug_id = ++binder_last_id;
 	node->proc = proc;//所属进程
-	node->ptr = ptr;
-	node->cookie = cookie;
+	node->ptr = ptr;//binder实体指针
+	node->cookie = cookie;//binder实体指针
 	node->work.type = BINDER_WORK_NODE;
 	INIT_LIST_HEAD(&node->work.entry);
 	INIT_LIST_HEAD(&node->async_todo);
@@ -1685,7 +1685,7 @@ static void binder_transaction(struct binder_proc *proc,
 			}
 		} break;
 
-		case BINDER_TYPE_FD: {
+		case BINDER_TYPE_FD: {//文件描述符fd类型
 			int target_fd;
 			struct file *file;
 
@@ -1703,7 +1703,7 @@ static void binder_transaction(struct binder_proc *proc,
 				goto err_fd_not_allowed;
 			}
 
-			file = fget(fp->handle);
+			file = fget(fp->handle);//根据fd获取file结构体
 			if (file == NULL) {
 				binder_user_error("%d:%d got transaction with invalid fd, %d\n",
 					proc->pid, thread->pid, fp->handle);
@@ -1717,13 +1717,13 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error = BR_FAILED_REPLY;
 				goto err_get_unused_fd_failed;
 			}
-			target_fd = task_get_unused_fd_flags(target_proc, O_CLOEXEC);
+			target_fd = task_get_unused_fd_flags(target_proc, O_CLOEXEC);//为目标进程分配fd
 			if (target_fd < 0) {
 				fput(file);
 				return_error = BR_FAILED_REPLY;
 				goto err_get_unused_fd_failed;
 			}
-			task_fd_install(target_proc, target_fd, file);
+			task_fd_install(target_proc, target_fd, file);//目标fd与file绑定
 			trace_binder_transaction_fd(t, fp->handle, target_fd);
 			binder_debug(BINDER_DEBUG_TRANSACTION,
 				     "        fd %d -> %d\n", fp->handle, target_fd);
@@ -1994,9 +1994,9 @@ static int binder_thread_write(struct binder_proc *proc,
 		case BC_REPLY: {
 			struct binder_transaction_data tr;
 
-			if (copy_from_user(&tr, ptr, sizeof(tr)))//将数据从用户空间地址ptr拷贝到内核地址&tr
+			if (copy_from_user(&tr, ptr, sizeof(tr)))//将传输的数据binder_transaction_data从用户空间地址ptr拷贝到内核地址&tr
 				return -EFAULT;
-			ptr += sizeof(tr);
+			ptr += sizeof(tr);//指针后移
 			binder_transaction(proc, thread, &tr, cmd == BC_REPLY);//调用binder_transaction处理数据
 			break;
 		}
@@ -2451,7 +2451,7 @@ retry:
 		} else {//目标binder_node为空，证明是回复事务
 			tr.target.ptr = 0;
 			tr.cookie = 0;
-			cmd = BR_REPLY;
+			cmd = BR_REPLY;//后面会拷贝到用户空间使用
 		}
 		tr.code = t->code;
 		tr.flags = t->flags;
@@ -2698,7 +2698,7 @@ static int binder_ioctl_write_read(struct file *filp,
 	int ret = 0;
 	struct binder_proc *proc = filp->private_data;//拿到当前的binder_proc
 	unsigned int size = _IOC_SIZE(cmd);
-	void __user *ubuf = (void __user *)arg;//用户空间的binder_write_read
+	void __user *ubuf = (void __user *)arg;//用户空间的binder_write_read的用户空间地址
 	struct binder_write_read bwr;
 
 	if (size != sizeof(struct binder_write_read)) {
@@ -2747,7 +2747,7 @@ static int binder_ioctl_write_read(struct file *filp,
 		     proc->pid, thread->pid,
 		     (u64)bwr.write_consumed, (u64)bwr.write_size,
 		     (u64)bwr.read_consumed, (u64)bwr.read_size);
-	if (copy_to_user(ubuf, &bwr, sizeof(bwr))) {
+	if (copy_to_user(ubuf, &bwr, sizeof(bwr))) {//将内核空间的bwr拷贝到用户空间的bwr
 		ret = -EFAULT;
 		goto out;
 	}
@@ -3749,7 +3749,7 @@ static int __init binder_init(void)
 	if (binder_debugfs_dir_entry_root)
 		binder_debugfs_dir_entry_proc = debugfs_create_dir("proc",
 						 binder_debugfs_dir_entry_root);
-	ret = misc_register(&binder_miscdev);
+	ret = misc_register(&binder_miscdev);//misc设备注册
 	if (binder_debugfs_dir_entry_root) {
 		debugfs_create_file("state",
 				    S_IRUGO,
@@ -3780,7 +3780,7 @@ static int __init binder_init(void)
 	return ret;
 }
 
-device_initcall(binder_init);
+device_initcall(binder_init);//初始化
 
 #define CREATE_TRACE_POINTS
 #include "binder_trace.h"

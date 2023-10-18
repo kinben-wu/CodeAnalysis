@@ -206,13 +206,14 @@ status_t BpBinder::dump(int fd, const Vector<String16>& args)
     return err;
 }
 
+//Binder代理传输数据
 status_t BpBinder::transact(
     uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
 {
     // Once a binder has died, it will never come back to life.
     if (mAlive) {
         status_t status = IPCThreadState::self()->transact(
-            mHandle, code, data, reply, flags);
+            mHandle, code, data, reply, flags);//调用IPCThreadState::self()->transact传输数据
         if (status == DEAD_OBJECT) mAlive = 0;
         return status;
     }

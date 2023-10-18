@@ -35,13 +35,16 @@
 
 namespace android {
 
+//获取ServiceManager
 sp<IServiceManager> defaultServiceManager()
 {
-    if (gDefaultServiceManager != NULL) return gDefaultServiceManager;
+    if (gDefaultServiceManager != NULL) return gDefaultServiceManager;//非空直接返回
 
     {
         AutoMutex _l(gDefaultServiceManagerLock);
         while (gDefaultServiceManager == NULL) {
+            //通过getContextObject拿到Ibinder，再通过interface_cast转成IServiceManager
+            //实际就是new BpServiceManager(BpBinder(0))
             gDefaultServiceManager = interface_cast<IServiceManager>(
                 ProcessState::self()->getContextObject(NULL));
             if (gDefaultServiceManager == NULL)

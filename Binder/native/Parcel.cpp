@@ -436,6 +436,7 @@ void Parcel::setDataPosition(size_t pos) const
     mObjectsSorted = false;
 }
 
+//设置Parcel缓冲区大小
 status_t Parcel::setDataCapacity(size_t size)
 {
     if (size > INT32_MAX) {
@@ -444,7 +445,7 @@ status_t Parcel::setDataCapacity(size_t size)
         return BAD_VALUE;
     }
 
-    if (size > mDataCapacity) return continueWrite(size);
+    if (size > mDataCapacity) return continueWrite(size);//内存空间申请
     return NO_ERROR;
 }
 
@@ -1150,13 +1151,14 @@ status_t Parcel::writeNativeHandle(const native_handle* handle)
     return err;
 }
 
+//往Parcel写入文件描述符fd
 status_t Parcel::writeFileDescriptor(int fd, bool takeOwnership)
 {
     flat_binder_object obj;
-    obj.hdr.type = BINDER_TYPE_FD;
+    obj.hdr.type = BINDER_TYPE_FD;//fd类型
     obj.flags = 0x7f | FLAT_BINDER_FLAG_ACCEPTS_FDS;
     obj.binder = 0; /* Don't pass uninitialized stack data to a remote process */
-    obj.handle = fd;
+    obj.handle = fd;//fd值赋给handle
     obj.cookie = takeOwnership ? 1 : 0;
     return writeObject(obj, true);
 }
@@ -1329,17 +1331,17 @@ restart_write:
         return finishWrite(sizeof(flat_binder_object));//偏移量指针mDataPos往后移动binder对象大小
     }
 
-    if (!enoughData) {
-        const status_t err = growData(sizeof(val));
+    if (!enoughData) {//mData空间不足
+        const status_t err = growData(sizeof(val));//扩容
         if (err != NO_ERROR) return err;
     }
-    if (!enoughObjects) {
+    if (!enoughObjects) {//mObjects空间不足
         size_t newSize = ((mObjectsSize+2)*3)/2;
         if (newSize*sizeof(binder_size_t) < mObjectsSize) return NO_MEMORY;   // overflow
-        binder_size_t* objects = (binder_size_t*)realloc(mObjects, newSize*sizeof(binder_size_t));
+        binder_size_t* objects = (binder_size_t*)realloc(mObjects, newSize*sizeof(binder_size_t));//内存空间申请
         if (objects == NULL) return NO_MEMORY;
-        mObjects = objects;
-        mObjectsCapacity = newSize;
+        mObjects = objects;//地址赋值
+        mObjectsCapacity = newSize;//objects size上限赋值
     }
 
     goto restart_write;
@@ -2518,12 +2520,14 @@ void Parcel::acquireObjects()
     }
 }
 
+//释放内存空间
 void Parcel::freeData()
 {
-    freeDataNoInit();
-    initState();
+    freeDataNoInit();//释放内存空间
+    initState();//重置Parcel
 }
 
+//释放空间
 void Parcel::freeDataNoInit()
 {
     if (mOwner) {
@@ -2545,12 +2549,13 @@ void Parcel::freeDataNoInit()
               gParcelGlobalAllocCount--;
             }
             pthread_mutex_unlock(&gParcelGlobalAllocSizeLock);
-            free(mData);
+            free(mData);//释放mData空间
         }
-        if (mObjects) free(mObjects);
+        if (mObjects) free(mObjects);//释放mObjects空间
     }
 }
 
+//空间扩容
 status_t Parcel::growData(size_t len)
 {
     if (len > INT32_MAX) {
@@ -2559,10 +2564,10 @@ status_t Parcel::growData(size_t len)
         return BAD_VALUE;
     }
 
-    size_t newSize = ((mDataSize+len)*3)/2;
+    size_t newSize = ((mDataSize+len)*3)/2;//扩容后的大小
     return (newSize <= mDataSize)
             ? (status_t) NO_MEMORY
-            : continueWrite(newSize);
+            : continueWrite(newSize);//申请空间
 }
 
 status_t Parcel::restartWrite(size_t desired)
@@ -2615,6 +2620,7 @@ status_t Parcel::restartWrite(size_t desired)
     return NO_ERROR;
 }
 
+//申请desired大小的空间
 status_t Parcel::continueWrite(size_t desired)
 {
     if (desired > INT32_MAX) {
@@ -2647,7 +2653,7 @@ status_t Parcel::continueWrite(size_t desired)
 
         // If there is a different owner, we need to take
         // posession.
-        uint8_t* data = (uint8_t*)malloc(desired);
+        uint8_t* data = (uint8_t*)malloc(desired);//申请空间
         if (!data) {
             mError = NO_MEMORY;
             return NO_MEMORY;
@@ -2655,7 +2661,7 @@ status_t Parcel::continueWrite(size_t desired)
         binder_size_t* objects = NULL;
 
         if (objectsSize) {
-            objects = (binder_size_t*)calloc(objectsSize, sizeof(binder_size_t));
+            objects = (binder_size_t*)calloc(objectsSize, sizeof(binder_size_t));//申请空间
             if (!objects) {
                 free(data);
 
@@ -2671,10 +2677,10 @@ status_t Parcel::continueWrite(size_t desired)
             mObjectsSize = oldObjectsSize;
         }
 
-        if (mData) {
+        if (mData) {//非空，说明是空间扩容，把mData的数据拷贝到data上
             memcpy(data, mData, mDataSize < desired ? mDataSize : desired);
         }
-        if (objects && mObjects) {
+        if (objects && mObjects) {//把mObjects的数据拷贝到objects上
             memcpy(objects, mObjects, objectsSize*sizeof(binder_size_t));
         }
         //ALOGI("Freeing data ref of %p (pid=%d)", this, getpid());
@@ -2687,11 +2693,11 @@ status_t Parcel::continueWrite(size_t desired)
         gParcelGlobalAllocCount++;
         pthread_mutex_unlock(&gParcelGlobalAllocSizeLock);
 
-        mData = data;
-        mObjects = objects;
+        mData = data;//地址赋值
+        mObjects = objects;//地址赋值
         mDataSize = (mDataSize < desired) ? mDataSize : desired;
         ALOGV("continueWrite Setting data size of %p to %zu", this, mDataSize);
-        mDataCapacity = desired;
+        mDataCapacity = desired;//mData缓冲区大小上限赋值
         mObjectsSize = mObjectsCapacity = objectsSize;
         mNextObjectHint = 0;
         mObjectsSorted = false;
@@ -2748,7 +2754,7 @@ status_t Parcel::continueWrite(size_t desired)
 
     } else {
         // This is the first data.  Easy!
-        uint8_t* data = (uint8_t*)malloc(desired);
+        uint8_t* data = (uint8_t*)malloc(desired);//申请空间
         if (!data) {
             mError = NO_MEMORY;
             return NO_MEMORY;
@@ -2765,11 +2771,11 @@ status_t Parcel::continueWrite(size_t desired)
         gParcelGlobalAllocCount++;
         pthread_mutex_unlock(&gParcelGlobalAllocSizeLock);
 
-        mData = data;
+        mData = data;//地址赋值
         mDataSize = mDataPos = 0;
         ALOGV("continueWrite Setting data size of %p to %zu", this, mDataSize);
         ALOGV("continueWrite Setting data pos of %p to %zu", this, mDataPos);
-        mDataCapacity = desired;
+        mDataCapacity = desired;//mData缓冲区上限赋值
     }
 
     return NO_ERROR;

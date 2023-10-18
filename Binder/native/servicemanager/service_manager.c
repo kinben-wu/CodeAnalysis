@@ -249,7 +249,7 @@ int do_add_service(struct binder_state *bs, const uint16_t *s, size_t len, uint3
     return 0;
 }
 
-//service_manager服务
+//service_manager服务处理函数
 int svcmgr_handler(struct binder_state *bs,
                    struct binder_transaction_data *txn,
                    struct binder_io *msg,

@@ -71,6 +71,7 @@ protected:
 
 // ----------------------------------------------------------------------
 
+//定义各INTERFACE的方法
 #define DECLARE_META_INTERFACE(INTERFACE)                               \
     static const ::android::String16 descriptor;                        \
     static ::android::sp<I##INTERFACE> asInterface(                     \
@@ -79,14 +80,14 @@ protected:
     I##INTERFACE();                                                     \
     virtual ~I##INTERFACE();                                            \
 
-
+//定义各INTERFACE的方法的实现
 #define IMPLEMENT_META_INTERFACE(INTERFACE, NAME)                       \
     const ::android::String16 I##INTERFACE::descriptor(NAME);           \
     const ::android::String16&                                          \
             I##INTERFACE::getInterfaceDescriptor() const {              \
         return I##INTERFACE::descriptor;                                \
     }                                                                   \
-    //定义各INTERFACE的asInterface方法
+    //定义各INTERFACE的asInterface方法的实现
     ::android::sp<I##INTERFACE> I##INTERFACE::asInterface(              \
             const ::android::sp<::android::IBinder>& obj)               \
     {                                                                   \

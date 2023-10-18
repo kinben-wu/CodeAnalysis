@@ -115,6 +115,7 @@ const String16& BBinder::getInterfaceDescriptor() const
     return sEmptyDescriptor;
 }
 
+//BBinder逻辑处理函数
 status_t BBinder::transact(
     uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
 {
@@ -126,7 +127,7 @@ status_t BBinder::transact(
             reply->writeInt32(pingBinder());
             break;
         default:
-            err = onTransact(code, data, reply, flags);
+            err = onTransact(code, data, reply, flags);//具体处理逻辑，由子类实现
             break;
     }
 

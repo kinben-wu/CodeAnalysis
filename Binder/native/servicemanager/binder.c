@@ -150,7 +150,7 @@ void binder_close(struct binder_state *bs)
 //1.2 设置为守护进程
 int binder_become_context_manager(struct binder_state *bs)
 {
-    return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);////1.2.1 ioctl调用，设置为守护进程
+    return ioctl(bs->fd, BINDER_SET_CONTEXT_MGR, 0);//1.2.1 ioctl调用，设置为守护进程
 }
 
 //往binder驱动写入数据
@@ -181,9 +181,9 @@ void binder_free_buffer(struct binder_state *bs,
         uint32_t cmd_free;
         binder_uintptr_t buffer;
     } __attribute__((packed)) data;
-    data.cmd_free = BC_FREE_BUFFER;
-    data.buffer = buffer_to_free;
-    binder_write(bs, &data, sizeof(data));
+    data.cmd_free = BC_FREE_BUFFER;//写入释放binder_buffer指令
+    data.buffer = buffer_to_free;//写入释放的binder_buffer.data的地址
+    binder_write(bs, &data, sizeof(data));//将数据传入binder驱动
 }
 
 //向请求方发送回复数据并释放内存
@@ -201,9 +201,9 @@ void binder_send_reply(struct binder_state *bs,
     } __attribute__((packed)) data;
 
     //相关成员赋值
-    data.cmd_free = BC_FREE_BUFFER;
+    data.cmd_free = BC_FREE_BUFFER;//释放binder_buffer指令
     data.buffer = buffer_to_free;
-    data.cmd_reply = BC_REPLY;
+    data.cmd_reply = BC_REPLY;//回复指令
     data.txn.target.ptr = 0;
     data.txn.cookie = 0;
     data.txn.code = 0;
@@ -251,7 +251,7 @@ int binder_parse(struct binder_state *bs, struct binder_io *bio,
 #endif
             ptr += sizeof(struct binder_ptr_cookie);
             break;
-        case BR_TRANSACTION: {
+        case BR_TRANSACTION: {//源进程传递数据过来
             struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;//取出binder传输的数据binder_transaction_data
             if ((end - ptr) < sizeof(*txn)) {
                 ALOGE("parse: txn too small!\n");
@@ -276,7 +276,7 @@ int binder_parse(struct binder_state *bs, struct binder_io *bio,
             ptr += sizeof(*txn);//指针后移
             break;
         }
-        case BR_REPLY: {
+        case BR_REPLY: {//收到目标进程的回复
             struct binder_transaction_data *txn = (struct binder_transaction_data *) ptr;
             if ((end - ptr) < sizeof(*txn)) {
                 ALOGE("parse: reply too small!\n");

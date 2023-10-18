@@ -69,9 +69,9 @@ sp<ProcessState> ProcessState::self()
 {
     Mutex::Autolock _l(gProcessMutex);
     if (gProcess != NULL) {
-        return gProcess;
+        return gProcess;//已创建直接返回
     }
-    gProcess = new ProcessState("/dev/binder");
+    gProcess = new ProcessState("/dev/binder");//未创建就创建ProcessState实例
     return gProcess;
 }
 
@@ -241,6 +241,7 @@ ProcessState::handle_entry* ProcessState::lookupHandleLocked(int32_t handle)
     return &mHandleToObject.editItemAt(handle);
 }
 
+//通过句柄handle获取IBinder
 sp<IBinder> ProcessState::getStrongProxyForHandle(int32_t handle)
 {
     sp<IBinder> result;
@@ -255,7 +256,7 @@ sp<IBinder> ProcessState::getStrongProxyForHandle(int32_t handle)
         // in getWeakProxyForHandle() for more info about this.
         IBinder* b = e->binder;
         if (b == NULL || !e->refs->attemptIncWeak(this)) {
-            if (handle == 0) {
+            if (handle == 0) {//0表示service manager
                 // Special case for context manager...
                 // The context manager is the only object for which we create
                 // a BpBinder proxy without already holding a reference.
@@ -380,10 +381,10 @@ String8 ProcessState::getDriverName() {
 
 static int open_driver(const char *driver)
 {
-    int fd = open(driver, O_RDWR | O_CLOEXEC);
+    int fd = open(driver, O_RDWR | O_CLOEXEC);//系统调用，打开binder驱动
     if (fd >= 0) {
         int vers = 0;
-        status_t result = ioctl(fd, BINDER_VERSION, &vers);
+        status_t result = ioctl(fd, BINDER_VERSION, &vers);//获取binder的版本号
         if (result == -1) {
             ALOGE("Binder ioctl to obtain version failed: %s", strerror(errno));
             close(fd);
@@ -395,8 +396,8 @@ static int open_driver(const char *driver)
             close(fd);
             fd = -1;
         }
-        size_t maxThreads = DEFAULT_MAX_BINDER_THREADS;
-        result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);
+        size_t maxThreads = DEFAULT_MAX_BINDER_THREADS;//=15
+        result = ioctl(fd, BINDER_SET_MAX_THREADS, &maxThreads);//设置最大线程数
         if (result == -1) {
             ALOGE("Binder ioctl to set max threads failed: %s", strerror(errno));
         }
@@ -423,6 +424,7 @@ ProcessState::ProcessState(const char *driver)
 {
     if (mDriverFD >= 0) {
         // mmap the binder, providing a chunk of virtual address space to receive transactions.
+        //mmap内存映射，映射的大小为BINDER_VM_SIZE：1M-8k，映射出的用户空间首地址返回给mVMStart
         mVMStart = mmap(0, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, mDriverFD, 0);
         if (mVMStart == MAP_FAILED) {
             // *sigh*

@@ -284,7 +284,7 @@ restart:
         const pthread_key_t k = gTLS;
         IPCThreadState* st = (IPCThreadState*)pthread_getspecific(k);
         if (st) return st;
-        return new IPCThreadState;
+        return new IPCThreadState;//创建实例
     }
 
     if (gShutdown) {
@@ -432,16 +432,17 @@ void IPCThreadState::blockUntilThreadAvailable()
     pthread_mutex_unlock(&mProcess->mThreadCountLock);
 }
 
+//从binder驱动获取指令并处理
 status_t IPCThreadState::getAndExecuteCommand()
 {
     status_t result;
     int32_t cmd;
 
-    result = talkWithDriver();
+    result = talkWithDriver();//与binder驱动通信
     if (result >= NO_ERROR) {
         size_t IN = mIn.dataAvail();
         if (IN < sizeof(int32_t)) return result;
-        cmd = mIn.readInt32();
+        cmd = mIn.readInt32();//从parcel读出指令
         IF_LOG_COMMANDS() {
             alog << "Processing top-level Command: "
                  << getReturnString(cmd) << endl;
@@ -455,7 +456,7 @@ status_t IPCThreadState::getAndExecuteCommand()
         }
         pthread_mutex_unlock(&mProcess->mThreadCountLock);
 
-        result = executeCommand(cmd);
+        result = executeCommand(cmd);//处理指令
 
         pthread_mutex_lock(&mProcess->mThreadCountLock);
         mProcess->mExecutingThreadsCount--;
@@ -525,6 +526,7 @@ void IPCThreadState::processPostWriteDerefs()
     mPostWriteStrongDerefs.clear();
 }
 
+//加入线程池
 void IPCThreadState::joinThreadPool(bool isMain)
 {
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(), getpid());
@@ -591,6 +593,7 @@ void IPCThreadState::stopProcess(bool /*immediate*/)
     //kill(getpid(), SIGKILL);
 }
 
+//数据传输
 status_t IPCThreadState::transact(int32_t handle,
                                   uint32_t code, const Parcel& data,
                                   Parcel* reply, uint32_t flags)
@@ -608,14 +611,14 @@ status_t IPCThreadState::transact(int32_t handle,
 
     LOG_ONEWAY(">>>> SEND from pid %d uid %d %s", getpid(), getuid(),
         (flags & TF_ONE_WAY) == 0 ? "READ REPLY" : "ONE WAY");
-    err = writeTransactionData(BC_TRANSACTION, flags, handle, code, data, NULL);
+    err = writeTransactionData(BC_TRANSACTION, flags, handle, code, data, NULL);//封装要传输的数据
 
     if (err != NO_ERROR) {
         if (reply) reply->setError(err);
         return (mLastError = err);
     }
 
-    if ((flags & TF_ONE_WAY) == 0) {
+    if ((flags & TF_ONE_WAY) == 0) {//需要回复
         #if 0
         if (code == 4) { // relayout
             ALOGI(">>>>>> CALLING transaction 4");
@@ -624,7 +627,7 @@ status_t IPCThreadState::transact(int32_t handle,
         }
         #endif
         if (reply) {
-            err = waitForResponse(reply);
+            err = waitForResponse(reply);//往binder驱动传输数据，需要目标进程回复
         } else {
             Parcel fakeReply;
             err = waitForResponse(&fakeReply);
@@ -645,7 +648,7 @@ status_t IPCThreadState::transact(int32_t handle,
             else alog << "(none requested)" << endl;
         }
     } else {
-        err = waitForResponse(NULL, NULL);
+        err = waitForResponse(NULL, NULL);//往binder驱动传输数据，不需要目标进程回复
     }
 
     return err;
@@ -733,8 +736,9 @@ status_t IPCThreadState::clearDeathNotification(int32_t handle, BpBinder* proxy)
     return NO_ERROR;
 }
 
+//构造方法
 IPCThreadState::IPCThreadState()
-    : mProcess(ProcessState::self()),
+    : mProcess(ProcessState::self()),//创建ProcessState实例
       mStrictModePolicy(0),
       mLastTransactionBinderFlags(0)
 {
@@ -748,28 +752,30 @@ IPCThreadState::~IPCThreadState()
 {
 }
 
+//发送回复
 status_t IPCThreadState::sendReply(const Parcel& reply, uint32_t flags)
 {
     status_t err;
     status_t statusBuffer;
-    err = writeTransactionData(BC_REPLY, flags, -1, 0, reply, &statusBuffer);
+    err = writeTransactionData(BC_REPLY, flags, -1, 0, reply, &statusBuffer);//根据reply封装binder传输数据binder_transaction_data
     if (err < NO_ERROR) return err;
 
-    return waitForResponse(NULL, NULL);
+    return waitForResponse(NULL, NULL);//发送binder回复数据给请求数据传输的进程，无需回复
 }
 
+//获取binder驱动响应
 status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
 {
     uint32_t cmd;
     int32_t err;
 
     while (1) {
-        if ((err=talkWithDriver()) < NO_ERROR) break;
+        if ((err=talkWithDriver()) < NO_ERROR) break;//与binder驱动通信
         err = mIn.errorCheck();
         if (err < NO_ERROR) break;
         if (mIn.dataAvail() == 0) continue;
 
-        cmd = (uint32_t)mIn.readInt32();
+        cmd = (uint32_t)mIn.readInt32();//读出binder驱动回复的指令
 
         IF_LOG_COMMANDS() {
             alog << "Processing waitForResponse Command: "
@@ -798,22 +804,23 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
             }
             goto finish;
 
-        case BR_REPLY:
+        case BR_REPLY://目标进程回复数据
             {
                 binder_transaction_data tr;
-                err = mIn.read(&tr, sizeof(tr));
+                err = mIn.read(&tr, sizeof(tr));//从Parcel读出binder_transaction_data
                 ALOG_ASSERT(err == NO_ERROR, "Not enough command data for brREPLY");
                 if (err != NO_ERROR) goto finish;
 
                 if (reply) {
-                    if ((tr.flags & TF_STATUS_CODE) == 0) {
+                    if ((tr.flags & TF_STATUS_CODE) == 0) {//需要目标进程回复
+                        //把回复的数据binder_transaction_data tr赋给Parcel reply，然后释放空间
                         reply->ipcSetDataReference(
                             reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
                             tr.data_size,
                             reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
                             tr.offsets_size/sizeof(binder_size_t),
                             freeBuffer, this);
-                    } else {
+                    } else {//不需要回复，直接释放空间
                         err = *reinterpret_cast<const status_t*>(tr.data.ptr.buffer);
                         freeBuffer(NULL,
                             reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
@@ -821,7 +828,7 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
                             reinterpret_cast<const binder_size_t*>(tr.data.ptr.offsets),
                             tr.offsets_size/sizeof(binder_size_t), this);
                     }
-                } else {
+                } else {//不需要回复，直接释放空间
                     freeBuffer(NULL,
                         reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
                         tr.data_size,
@@ -833,7 +840,7 @@ status_t IPCThreadState::waitForResponse(Parcel *reply, status_t *acquireResult)
             goto finish;
 
         default:
-            err = executeCommand(cmd);
+            err = executeCommand(cmd);//其他指令进入executeCommand方法处理
             if (err != NO_ERROR) goto finish;
             break;
         }
@@ -849,13 +856,14 @@ finish:
     return err;
 }
 
+//与binder驱动通信
 status_t IPCThreadState::talkWithDriver(bool doReceive)
 {
     if (mProcess->mDriverFD <= 0) {
         return -EBADF;
     }
 
-    binder_write_read bwr;
+    binder_write_read bwr;//与binder驱动通信的数据结构
 
     // Is the read buffer empty?
     const bool needRead = mIn.dataPosition() >= mIn.dataSize();
@@ -865,14 +873,15 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     // has requested to read the next data.
     const size_t outAvail = (!doReceive || needRead) ? mOut.dataSize() : 0;
 
-    bwr.write_size = outAvail;
-    bwr.write_buffer = (uintptr_t)mOut.data();
+    bwr.write_size = outAvail;//设置写缓冲区的大小
+    bwr.write_buffer = (uintptr_t)mOut.data();//设置写缓冲区的指针
 
     // This is what we'll read.
-    if (doReceive && needRead) {
-        bwr.read_size = mIn.dataCapacity();
-        bwr.read_buffer = (uintptr_t)mIn.data();
-    } else {
+    if (doReceive && needRead) {//binder驱动有回复，需要读的情况
+        bwr.read_size = mIn.dataCapacity();//设置读缓冲区的大小
+        bwr.read_buffer = (uintptr_t)mIn.data();//设置读缓冲区的指针，供binder驱动写入回复数据
+        //mIn是在IPCThreadState构造的时候申请了256大小的内存空间，赋值给bwr.read_buffer从而使得bwr.read_buffer具有实际的内存空间
+    } else {//不需要读，置为0
         bwr.read_size = 0;
         bwr.read_buffer = 0;
     }
@@ -902,7 +911,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
             alog << "About to read/write, write size = " << mOut.dataSize() << endl;
         }
 #if defined(__ANDROID__)
-        if (ioctl(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)
+        if (ioctl(mProcess->mDriverFD, BINDER_WRITE_READ, &bwr) >= 0)//调用ioctl方法与binder驱动通信
             err = NO_ERROR;
         else
             err = -errno;
@@ -926,15 +935,15 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     if (err >= NO_ERROR) {
         if (bwr.write_consumed > 0) {
             if (bwr.write_consumed < mOut.dataSize())
-                mOut.remove(0, bwr.write_consumed);
+                mOut.remove(0, bwr.write_consumed);//清除mOut已被消费的数据
             else {
-                mOut.setDataSize(0);
+                mOut.setDataSize(0);//清除mOut所有数据
                 processPostWriteDerefs();
             }
         }
-        if (bwr.read_consumed > 0) {
-            mIn.setDataSize(bwr.read_consumed);
-            mIn.setDataPosition(0);
+        if (bwr.read_consumed > 0) {//>0表示有回复数据
+            mIn.setDataSize(bwr.read_consumed);//设置读缓冲区大小
+            mIn.setDataPosition(0);//设置读指针
         }
         IF_LOG_COMMANDS() {
             TextOutput::Bundle _b(alog);
@@ -952,6 +961,7 @@ status_t IPCThreadState::talkWithDriver(bool doReceive)
     return err;
 }
 
+//封装binder传输数据
 status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     int32_t handle, uint32_t code, const Parcel& data, status_t* statusBuffer)
 {
@@ -966,11 +976,11 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
     tr.sender_euid = 0;
 
     const status_t err = data.errorCheck();
-    if (err == NO_ERROR) {
-        tr.data_size = data.ipcDataSize();
-        tr.data.ptr.buffer = data.ipcData();
-        tr.offsets_size = data.ipcObjectsCount()*sizeof(binder_size_t);
-        tr.data.ptr.offsets = data.ipcObjects();
+    if (err == NO_ERROR) {//把入参Parcel数据赋值给binder_transaction_data
+        tr.data_size = data.ipcDataSize();//传输数据大小
+        tr.data.ptr.buffer = data.ipcData();//传输数据buffer首地址
+        tr.offsets_size = data.ipcObjectsCount()*sizeof(binder_size_t);//binder偏移量数组的大小
+        tr.data.ptr.offsets = data.ipcObjects();//binder偏移量数组的首地址
     } else if (statusBuffer) {
         tr.flags |= TF_STATUS_CODE;
         *statusBuffer = err;
@@ -982,8 +992,8 @@ status_t IPCThreadState::writeTransactionData(int32_t cmd, uint32_t binderFlags,
         return (mLastError = err);
     }
 
-    mOut.writeInt32(cmd);
-    mOut.write(&tr, sizeof(tr));
+    mOut.writeInt32(cmd);//写入指令
+    mOut.write(&tr, sizeof(tr));//写入binder_transaction_data
 
     return NO_ERROR;
 }
@@ -995,6 +1005,7 @@ void setTheContextObject(sp<BBinder> obj)
     the_context_object = obj;
 }
 
+//binder指令处理
 status_t IPCThreadState::executeCommand(int32_t cmd)
 {
     BBinder* obj;
@@ -1074,15 +1085,16 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
         }
         break;
 
-    case BR_TRANSACTION:
+    case BR_TRANSACTION://源进程传输数据过来
         {
             binder_transaction_data tr;
-            result = mIn.read(&tr, sizeof(tr));
+            result = mIn.read(&tr, sizeof(tr));//从mIn读出binder_transaction_data
             ALOG_ASSERT(result == NO_ERROR,
                 "Not enough command data for brTRANSACTION");
             if (result != NO_ERROR) break;
 
             Parcel buffer;
+            //把binder_transaction_data赋值到Parcel buffer，作为入参
             buffer.ipcSetDataReference(
                 reinterpret_cast<const uint8_t*>(tr.data.ptr.buffer),
                 tr.data_size,
@@ -1119,7 +1131,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                 if (reinterpret_cast<RefBase::weakref_type*>(
                         tr.target.ptr)->attemptIncStrong(this)) {
                     error = reinterpret_cast<BBinder*>(tr.cookie)->transact(tr.code, buffer,
-                            &reply, tr.flags);
+                            &reply, tr.flags);//调用BBinder的transact方法处理
                     reinterpret_cast<BBinder*>(tr.cookie)->decStrong(this);
                 } else {
                     error = UNKNOWN_TRANSACTION;
@@ -1132,10 +1144,10 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             //ALOGI("<<<< TRANSACT from pid %d restore pid %d uid %d\n",
             //     mCallingPid, origPid, origUid);
 
-            if ((tr.flags & TF_ONE_WAY) == 0) {
+            if ((tr.flags & TF_ONE_WAY) == 0) {//需要回复
                 LOG_ONEWAY("Sending reply to %d!", mCallingPid);
                 if (error < NO_ERROR) reply.setError(error);
-                sendReply(reply, 0);
+                sendReply(reply, 0);//发送回复
             } else {
                 LOG_ONEWAY("NOT sending reply to %d!", mCallingPid);
             }
@@ -1206,7 +1218,7 @@ void IPCThreadState::threadDestructor(void *st)
         }
 }
 
-
+//释放Parcel空间
 void IPCThreadState::freeBuffer(Parcel* parcel, const uint8_t* data,
                                 size_t /*dataSize*/,
                                 const binder_size_t* /*objects*/,
@@ -1219,8 +1231,8 @@ void IPCThreadState::freeBuffer(Parcel* parcel, const uint8_t* data,
     ALOG_ASSERT(data != NULL, "Called with NULL data");
     if (parcel != NULL) parcel->closeFileDescriptors();
     IPCThreadState* state = self();
-    state->mOut.writeInt32(BC_FREE_BUFFER);
-    state->mOut.writePointer((uintptr_t)data);
+    state->mOut.writeInt32(BC_FREE_BUFFER);//写入binder_buffer释放指令
+    state->mOut.writePointer((uintptr_t)data);//写入binder_buffer.data的地址
 }
 
 }; // namespace android
