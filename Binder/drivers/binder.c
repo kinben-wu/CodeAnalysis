@@ -1,4 +1,6 @@
-/* binder.c
+/*
+ * /drivers/android/binder.c
+ * binder.c
  *
  * Android IPC Subsystem
  *
