@@ -1525,6 +1525,7 @@ data_unsorted:
     goto data_sorted;
 }
 
+//从Parcel读出len长度的数据，拷贝到outData指向的缓冲区里
 status_t Parcel::read(void* outData, size_t len) const
 {
     if (len > INT32_MAX) {
@@ -1534,7 +1535,7 @@ status_t Parcel::read(void* outData, size_t len) const
     }
 
     if ((mDataPos+pad_size(len)) >= mDataPos && (mDataPos+pad_size(len)) <= mDataSize
-            && len <= pad_size(len)) {
+            && len <= pad_size(len)) {//可读
         if (mObjectsSize > 0) {
             status_t err = validateReadData(mDataPos + pad_size(len));
             if(err != NO_ERROR) {
@@ -1544,8 +1545,8 @@ status_t Parcel::read(void* outData, size_t len) const
                 return err;
             }
         }
-        memcpy(outData, mData+mDataPos, len);
-        mDataPos += pad_size(len);
+        memcpy(outData, mData+mDataPos, len);//拷贝
+        mDataPos += pad_size(len);//读指针后移
         ALOGV("read Setting data pos of %p to %zu", this, mDataPos);
         return NO_ERROR;
     }
