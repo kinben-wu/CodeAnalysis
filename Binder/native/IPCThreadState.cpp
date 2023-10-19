@@ -1125,7 +1125,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
                     << ", offsets addr="
                     << reinterpret_cast<const size_t*>(tr.data.ptr.offsets) << endl;
             }
-            if (tr.target.ptr) {
+            if (tr.target.ptr) {//目标binder实体非空
                 // We only have a weak reference on the target object, so we must first try to
                 // safely acquire a strong reference before doing anything else with it.
                 if (reinterpret_cast<RefBase::weakref_type*>(
