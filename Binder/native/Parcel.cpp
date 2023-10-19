@@ -2436,19 +2436,20 @@ size_t Parcel::ipcObjectsCount() const
     return mObjectsSize;
 }
 
+//设置数据到Parcel
 void Parcel::ipcSetDataReference(const uint8_t* data, size_t dataSize,
     const binder_size_t* objects, size_t objectsCount, release_func relFunc, void* relCookie)
 {
     binder_size_t minOffset = 0;
     freeDataNoInit();
     mError = NO_ERROR;
-    mData = const_cast<uint8_t*>(data);
-    mDataSize = mDataCapacity = dataSize;
+    mData = const_cast<uint8_t*>(data);//数据缓冲区首地址
+    mDataSize = mDataCapacity = dataSize;//数据大小
     //ALOGI("setDataReference Setting data size of %p to %lu (pid=%d)", this, mDataSize, getpid());
-    mDataPos = 0;
+    mDataPos = 0;//起始位置
     ALOGV("setDataReference Setting data pos of %p to %zu", this, mDataPos);
-    mObjects = const_cast<binder_size_t*>(objects);
-    mObjectsSize = mObjectsCapacity = objectsCount;
+    mObjects = const_cast<binder_size_t*>(objects);//binder偏移量数组
+    mObjectsSize = mObjectsCapacity = objectsCount;//binder偏移量数组大小
     mNextObjectHint = 0;
     mObjectsSorted = false;
     mOwner = relFunc;

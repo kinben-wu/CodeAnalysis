@@ -58,7 +58,7 @@ public:
 protected:
     virtual bool threadLoop()
     {
-        IPCThreadState::self()->joinThreadPool(mIsMain);
+        IPCThreadState::self()->joinThreadPool(mIsMain);//调用joinThreadPool方法开启循环，循环处理从binder驱动过来的指令
         return false;
     }
     
@@ -159,7 +159,7 @@ void ProcessState::startThreadPool()
     AutoMutex _l(mLock);
     if (!mThreadPoolStarted) {
         mThreadPoolStarted = true;
-        spawnPooledThread(true);
+        spawnPooledThread(true);//创建binder主线程
     }
 }
 
@@ -350,13 +350,14 @@ String8 ProcessState::makeBinderThreadName() {
     return name;
 }
 
+//新建线程
 void ProcessState::spawnPooledThread(bool isMain)
 {
     if (mThreadPoolStarted) {
         String8 name = makeBinderThreadName();
         ALOGV("Spawning new pooled thread, name=%s\n", name.string());
         sp<Thread> t = new PoolThread(isMain);
-        t->run(name.string());
+        t->run(name.string());//里面会调用threadLoop方法
     }
 }
 

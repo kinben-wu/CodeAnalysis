@@ -2520,7 +2520,7 @@ done:
 		binder_debug(BINDER_DEBUG_THREADS,
 			     "%d:%d BR_SPAWN_LOOPER\n",
 			     proc->pid, thread->pid);
-		if (put_user(BR_SPAWN_LOOPER, (uint32_t __user *)buffer))//通过向用户空间buffer拷贝BR_SPAWN_LOOPER指令新建处理线程
+		if (put_user(BR_SPAWN_LOOPER, (uint32_t __user *)buffer))//通过向用户空间buffer拷贝BR_SPAWN_LOOPER指令新建binder处理线程
 			return -EFAULT;
 		binder_stat_br(proc, thread, BR_SPAWN_LOOPER);
 	}

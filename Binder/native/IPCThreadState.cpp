@@ -526,18 +526,18 @@ void IPCThreadState::processPostWriteDerefs()
     mPostWriteStrongDerefs.clear();
 }
 
-//加入线程池
+//线程开启循环，处理binder指令
 void IPCThreadState::joinThreadPool(bool isMain)
 {
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS JOINING THE THREAD POOL\n", (void*)pthread_self(), getpid());
 
-    mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
+    mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);//通知binder驱动，线程进入循环
 
     status_t result;
-    do {
+    do {//开启循环
         processPendingDerefs();
         // now get the next command to be processed, waiting if necessary
-        result = getAndExecuteCommand();
+        result = getAndExecuteCommand();//从binder驱动获取指令与数据，并处理
 
         if (result < NO_ERROR && result != TIMED_OUT && result != -ECONNREFUSED && result != -EBADF) {
             ALOGE("getAndExecuteCommand(fd=%d) returned unexpected error %d, aborting",
@@ -555,7 +555,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
     LOG_THREADPOOL("**** THREAD %p (PID %d) IS LEAVING THE THREAD POOL err=%d\n",
         (void*)pthread_self(), getpid(), result);
 
-    mOut.writeInt32(BC_EXIT_LOOPER);
+    mOut.writeInt32(BC_EXIT_LOOPER);//通知binder驱动，线程退出循环
     talkWithDriver(false);
 }
 
@@ -1187,8 +1187,8 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
     case BR_NOOP:
         break;
 
-    case BR_SPAWN_LOOPER:
-        mProcess->spawnPooledThread(false);
+    case BR_SPAWN_LOOPER://新建线程
+        mProcess->spawnPooledThread(false);//false表示非主线程
         break;
 
     default:
