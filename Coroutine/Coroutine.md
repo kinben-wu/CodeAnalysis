@@ -513,9 +513,38 @@ SuspendLambda是继承了BaseContinuationImpl，所以(this is BaseContinuationI
 13、create
 同5，将HelloKt$get$2反编译成java：
 ```
-public final Continuation create(@Nullable Object value, @NotNull Continuation completion) {
-    Function2 var3 = new HelloKt$get$2(completion);
-    return var3;
+public static final Object get(@NotNull Continuation $completion) {
+    return BuildersKt.withContext((CoroutineContext)Dispatchers.getIO(), (Function2)(new Function2((Continuation)null) {
+        int label;
+
+        @Nullable
+        public final Object invokeSuspend(@NotNull Object var1) {
+            Object var5 = IntrinsicsKt.getCOROUTINE_SUSPENDED();
+            switch(this.label) {
+            case 0:
+               ResultKt.throwOnFailure(var1);
+               URLConnection c = (new URL("https://cn.bing.com")).openConnection();
+               InputStream var10000 = c.getInputStream();
+               Intrinsics.checkNotNullExpressionValue(var10000, "c.getInputStream()");
+               byte[] a = ByteStreamsKt.readBytes(var10000);
+               boolean var4 = false;
+               return new String(a, Charsets.UTF_8);
+            default:
+               throw new IllegalStateException("call to 'resume' before 'invoke' with coroutine");
+            }
+        }
+
+        @NotNull
+        public final Continuation create(@Nullable Object value, @NotNull Continuation completion) {
+            Intrinsics.checkNotNullParameter(completion, "completion");
+            Function2 var3 = new HelloKt$get$2(completion);
+            return var3;
+        }
+
+        public final Object invoke(Object var1, Object var2) {
+            return ((HelloKt$get$2)this.create(var1, (Continuation)var2)).invokeSuspend(Unit.INSTANCE);
+        }
+    }), $completion);
 }
 ```
 得知，create就是重新new一个HelloKt$get$2实例，并把12中的completion传入。
